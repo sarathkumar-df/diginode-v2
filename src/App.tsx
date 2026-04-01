@@ -1,50 +1,36 @@
-import { useState, useEffect } from 'react'
-import { ReactFlowProvider } from 'reactflow'
-import { MindMapCanvas } from '@/components/Canvas/MindMapCanvas'
-import { TopToolbar } from '@/components/Toolbar/TopToolbar'
-import { FloatingToolbar } from '@/components/Toolbar/FloatingToolbar'
-import { LeftSidebar } from '@/components/Sidebar/LeftSidebar'
-import { RightSidebar } from '@/components/Sidebar/RightSidebar'
-import { SearchPanel } from '@/components/UI/SearchPanel'
-import { FocusModeBar } from '@/components/UI/FocusMode'
-import { GenerateMapModal } from '@/components/UI/GenerateMapModal'
-import { SettingsModal } from '@/components/UI/SettingsModal'
-import { PresentationMode } from '@/components/UI/PresentationMode'
-import { useUIStore } from '@/store/uiStore'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { useIsAuthenticated } from '@azure/msal-react'
+import { MapPage } from '@/pages/MapPage'
+import { Dashboard } from '@/pages/Dashboard'
+import { TeamsPage } from '@/pages/TeamsPage'
+import { InvitePage } from '@/pages/InvitePage'
+import { SignInPage } from '@/pages/SignInPage'
 
-function AppInner() {
-  const { theme } = useUIStore()
-  const [generateModalOpen, setGenerateModalOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+// ── Protected route wrapper ───────────────────────────────────────────────────
+// Redirects unauthenticated users to /sign-in, preserving the intended URL
 
-  // Sync theme class on mount
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-  }, [theme])
-
-  return (
-    <div className="w-screen h-screen overflow-hidden relative" style={{ background: 'var(--canvas-bg)' }}>
-      {/* Canvas fills the whole screen */}
-      <MindMapCanvas />
-
-      {/* Overlaid UI */}
-      <TopToolbar onOpenGenerateModal={() => setGenerateModalOpen(true)} onOpenSettings={() => setSettingsOpen(true)} />
-      <FloatingToolbar />
-      <LeftSidebar />
-      <RightSidebar />
-      <SearchPanel />
-      <FocusModeBar />
-      <GenerateMapModal open={generateModalOpen} onClose={() => setGenerateModalOpen(false)} />
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <PresentationMode />
-    </div>
-  )
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useIsAuthenticated()
+  if (!isAuthenticated) return <Navigate to="/sign-in" replace />
+  return <>{children}</>
 }
+
+// ── App router ────────────────────────────────────────────────────────────────
 
 export default function App() {
   return (
-    <ReactFlowProvider>
-      <AppInner />
-    </ReactFlowProvider>
+    <Routes>
+      {/* Public */}
+      <Route path="/sign-in" element={<SignInPage />} />
+      <Route path="/invite/:token" element={<InvitePage />} />
+
+      {/* Protected */}
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/map/:mapId" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
+      <Route path="/teams" element={<ProtectedRoute><TeamsPage /></ProtectedRoute>} />
+
+      {/* Default: authenticated → dashboard, unauthenticated → sign-in */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
   )
 }

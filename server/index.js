@@ -3,6 +3,7 @@ import cors from 'cors'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { config } from 'dotenv'
+import { requireAuth } from './auth.js'
 
 config()
 
@@ -139,8 +140,12 @@ function route(fn) {
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
 
+// All /api/ai/* routes require a valid Microsoft JWT
+// In local dev, set SKIP_AUTH=true in .env to bypass auth for easier development
+const authMiddleware = process.env.SKIP_AUTH === 'true' ? (req, res, next) => next() : requireAuth
+
 // Test connection
-app.post('/api/ai/test-connection', route(async (req, res) => {
+app.post('/api/ai/test-connection', authMiddleware, route(async (req, res) => {
   const { provider, apiKey, model } = aiConfig(req)
   console.log(`[test-connection] provider=${provider} model=${resolveModel(provider, model)}`)
   const text = await callAI({
@@ -154,7 +159,7 @@ app.post('/api/ai/test-connection', route(async (req, res) => {
 }))
 
 // 0. Generate mind map from pasted text (streaming)
-app.post('/api/ai/generate-from-text', route(async (req, res) => {
+app.post('/api/ai/generate-from-text', authMiddleware, route(async (req, res) => {
   const { text } = req.body
   if (!text) return res.status(400).json({ error: 'text is required' })
   const { provider, apiKey, model } = aiConfig(req)
@@ -193,7 +198,7 @@ Create 4-6 main branches, each with 2-4 children. Output ONLY the JSON.`,
 }))
 
 // 1. Generate mind map from topic (streaming)
-app.post('/api/ai/generate-map', route(async (req, res) => {
+app.post('/api/ai/generate-map', authMiddleware, route(async (req, res) => {
   const { topic } = req.body
   if (!topic) return res.status(400).json({ error: 'topic is required' })
   const { provider, apiKey, model } = aiConfig(req)
@@ -227,7 +232,7 @@ Create 4-6 main branches, each with 3-5 children. Output ONLY the JSON, no expla
 }))
 
 // 2. Expand node
-app.post('/api/ai/expand-node', route(async (req, res) => {
+app.post('/api/ai/expand-node', authMiddleware, route(async (req, res) => {
   const { nodeLabel, mapContext, count = 5 } = req.body
   if (!nodeLabel) return res.status(400).json({ error: 'nodeLabel is required' })
   const { provider, apiKey, model } = aiConfig(req)
@@ -245,7 +250,7 @@ app.post('/api/ai/expand-node', route(async (req, res) => {
 }))
 
 // 3. Summarize (streaming)
-app.post('/api/ai/summarize', route(async (req, res) => {
+app.post('/api/ai/summarize', authMiddleware, route(async (req, res) => {
   const { mapContext } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
   const { provider, apiKey, model } = aiConfig(req)
@@ -261,7 +266,7 @@ app.post('/api/ai/summarize', route(async (req, res) => {
 }))
 
 // 4. Brainstorm chat (streaming)
-app.post('/api/ai/chat', route(async (req, res) => {
+app.post('/api/ai/chat', authMiddleware, route(async (req, res) => {
   const { userMessage, mapContext, history = [] } = req.body
   if (!userMessage) return res.status(400).json({ error: 'userMessage is required' })
   const { provider, apiKey, model } = aiConfig(req)
@@ -279,7 +284,7 @@ app.post('/api/ai/chat', route(async (req, res) => {
 }))
 
 // 5. Find connections
-app.post('/api/ai/connections', route(async (req, res) => {
+app.post('/api/ai/connections', authMiddleware, route(async (req, res) => {
   const { mapContext } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
   const { provider, apiKey, model } = aiConfig(req)
@@ -297,7 +302,7 @@ app.post('/api/ai/connections', route(async (req, res) => {
 }))
 
 // 6. Write from map (streaming)
-app.post('/api/ai/write', route(async (req, res) => {
+app.post('/api/ai/write', authMiddleware, route(async (req, res) => {
   const { mapContext, format = 'essay' } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
   const { provider, apiKey, model } = aiConfig(req)

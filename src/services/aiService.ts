@@ -1,11 +1,36 @@
 import { MindMapExport, AINodeSuggestion, AIConnectionSuggestion } from '@/types'
 import { useSettingsStore } from '@/store/settingsStore'
+import { msalInstance } from '@/auth/AuthProvider'
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '') + '/api/ai'
 
 function getAIConfig() {
   const { provider, apiKey, model } = useSettingsStore.getState()
   return { provider, apiKey, model }
+}
+
+// Fetch a fresh Microsoft ID token to authenticate requests against the backend.
+// Falls back to null if the user is not signed in (e.g. local dev with SKIP_AUTH=true).
+async function getAuthToken(): Promise<string | null> {
+  const account = msalInstance.getActiveAccount()
+  if (!account) return null
+  try {
+    const result = await msalInstance.acquireTokenSilent({
+      scopes: ['openid', 'profile', 'email'],
+      account,
+    })
+    return result.idToken
+  } catch {
+    return null
+  }
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getAuthToken()
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
 }
 
 async function streamPost(
@@ -16,7 +41,7 @@ async function streamPost(
 ): Promise<void> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await authHeaders(),
     body: JSON.stringify({ ...getAIConfig(), ...(body as object) }),
     signal,
   })
@@ -57,7 +82,7 @@ async function streamPost(
 async function jsonPost<T>(endpoint: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await authHeaders(),
     body: JSON.stringify({ ...getAIConfig(), ...(body as object) }),
   })
 

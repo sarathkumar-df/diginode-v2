@@ -13,13 +13,24 @@ DigoNode is an AI-powered mind mapping web application built with React, TypeScr
 | Animation | Framer Motion |
 | Icons | Lucide React |
 | AI | Anthropic Claude + OpenAI (user-selectable) via Express proxy |
-| Backend | Express.js (AI proxy only) |
+| Auth | Microsoft Entra ID (Azure AD) via MSAL — `@azure/msal-react` frontend, `jwks-rsa` + `jsonwebtoken` backend |
+| Routing | React Router v6 (`react-router-dom`) |
+| Backend | Express.js (AI proxy + auth middleware) |
 | Export | html-to-image (PNG), native JSON/Markdown |
 
 ## Project Structure
 
 ```
 src/
+├── auth/
+│   ├── msalConfig.ts    # MSAL PublicClientApplication config + loginRequest scopes
+│   └── AuthProvider.tsx # MsalProvider wrapper, useCurrentUser(), useGetToken() hooks
+├── pages/
+│   ├── SignInPage.tsx   # Public: Microsoft SSO sign-in screen
+│   ├── Dashboard.tsx    # Protected: map grid, new map button, nav
+│   ├── MapPage.tsx      # Protected: full canvas view (previously App.tsx content)
+│   ├── TeamsPage.tsx    # Protected: teams management (Phase 3 stub)
+│   └── InvitePage.tsx   # Public: team invite acceptance flow
 ├── components/
 │   ├── Canvas/          # React Flow canvas, nodes, edges
 │   │   └── MindMapCanvas.tsx   # nodeTypes, edgeTypes, fitView logic
@@ -41,7 +52,7 @@ src/
 │   ├── uiStore.ts       # UI state (theme, panels, focus mode, presentation mode)
 │   └── settingsStore.ts # AI provider, model, API key (persisted)
 ├── services/
-│   └── aiService.ts     # All AI API calls (via proxy), uses VITE_API_URL
+│   └── aiService.ts     # All AI API calls (via proxy), uses VITE_API_URL + JWT auth
 ├── hooks/
 │   ├── useMindMap.ts    # Mind map operations
 │   ├── useAI.ts         # AI feature hooks (fetchExpandSuggestions, addSuggestionNode, etc.)
@@ -53,8 +64,10 @@ src/
 │   └── exportUtils.ts   # PNG (html-to-image), JSON, Markdown export
 └── vite-env.d.ts        # Vite env type declarations (required for import.meta.env)
 server/
-└── index.js             # Express AI proxy — supports Anthropic + OpenAI
+├── index.js             # Express server — AI proxy with auth middleware on all routes
+└── auth.js              # requireAuth middleware — Microsoft JWT verification via jwks-rsa
 railway.toml             # Railway deploy config (startCommand = node server/index.js)
+vercel.json              # SPA rewrite rule — routes all paths to index.html
 ```
 
 ## Core Conventions
@@ -165,6 +178,48 @@ Both Anthropic and OpenAI providers are supported; user selects in Settings moda
 - **JSON** — Exports nodes + edges as structured JSON file
 - **Markdown** — Exports map as indented Markdown outline
 
+## Authentication (Phase 1)
+
+### Flow
+1. User visits any protected route → redirected to `/sign-in`
+2. User clicks "Continue with Microsoft" → MSAL opens a popup to Microsoft login
+3. On success, MSAL stores the account in `sessionStorage` and sets it as the active account
+4. `useIsAuthenticated()` returns `true` → user is redirected to `/dashboard`
+5. Every API call fetches a fresh ID token via `msalInstance.acquireTokenSilent()` and sends it as `Authorization: Bearer <token>`
+6. Express `requireAuth` middleware verifies the token signature using Microsoft's public JWKS keys
+
+### Key hooks
+- `useCurrentUser()` — returns `{ id, name, email, tenantId }` or `null` if not signed in
+- `useGetToken()` — returns an async function that gets a fresh ID token (used for future direct fetch calls outside aiService)
+- `useIsAuthenticated()` — from `@azure/msal-react`, used in ProtectedRoute
+
+### Azure App Registration setup (required)
+1. Azure Portal → Azure Active Directory → App Registrations → New registration
+2. Set Redirect URI: `http://localhost:5173` (dev) + `https://your-vercel-app.vercel.app` (prod)
+3. Under Authentication → enable "ID tokens" under Implicit grant
+4. Copy **Application (client) ID** → `VITE_AZURE_CLIENT_ID` + `AZURE_CLIENT_ID`
+5. Copy **Directory (tenant) ID** → `VITE_AZURE_TENANT_ID` + `AZURE_TENANT_ID`
+
+### Environment variables for auth
+**Railway (backend):**
+```
+AZURE_CLIENT_ID=...
+AZURE_TENANT_ID=common   # or your specific tenant GUID
+SKIP_AUTH=true           # local dev only — bypasses JWT check
+```
+
+**Vercel (frontend, build-time):**
+```
+VITE_AZURE_CLIENT_ID=...
+VITE_AZURE_TENANT_ID=common
+```
+
+### Auth middleware in Express
+- `server/auth.js` exports `requireAuth` — applied to all `/api/ai/*` routes
+- In local dev: set `SKIP_AUTH=true` in `.env` to bypass JWT verification
+- `req.user` is set to `{ id, email, name, tenantId }` on every authenticated request
+- The `/api/health` endpoint is intentionally public (no auth required)
+
 ## Deployment
 
 | Service | Purpose | Config |
@@ -180,11 +235,15 @@ ANTHROPIC_API_KEY=...
 OPENAI_API_KEY=...
 PORT=3001
 FRONTEND_URL=https://your-vercel-app.vercel.app
+AZURE_CLIENT_ID=...
+AZURE_TENANT_ID=common
 ```
 
 **Vercel (frontend build-time):**
 ```
 VITE_API_URL=https://your-railway-app.up.railway.app
+VITE_AZURE_CLIENT_ID=...
+VITE_AZURE_TENANT_ID=common
 ```
 
 > `VITE_` variables are baked into the bundle at build time. After adding/changing them in Vercel, you must trigger a new deployment for changes to take effect.
@@ -212,6 +271,8 @@ When asked to add a new feature:
 - Do not use Redux (use Zustand)
 - Do not add global CSS except in `src/index.css`
 - Do not call the Anthropic/OpenAI API directly from the frontend (use the Express proxy at `/api/ai`)
+- Do not set `SKIP_AUTH=true` in production — it disables all authentication on the backend
+- Do not store the MSAL token in Zustand or any persistent state — always fetch via `acquireTokenSilent()`
 - Do not use hardcoded relative paths like `/api/ai/...` in the frontend — use `API_BASE` from aiService or build it from `import.meta.env.VITE_API_URL`
 - Do not store sensitive data (API keys) in frontend state or localStorage beyond what `settingsStore` (persisted Zustand) already handles
 - Do not add dependencies without checking if an existing one covers the use case
