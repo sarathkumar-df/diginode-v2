@@ -3,7 +3,6 @@ import { Trash2, Plus, GitBranch, CheckSquare, Sparkles } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useMindMapStore } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
-import { useAI } from '@/hooks/useAI'
 import { NODE_COLORS } from '@/types'
 
 function ToolBtn({
@@ -38,7 +37,7 @@ function ToolBtn({
 export function FloatingToolbar() {
   const { selectedNodeIds } = useUIStore()
   const { addNode, addSiblingNode, deleteNode, updateNodeColor } = useMindMapStore()
-  const { expandSelectedNode } = useAI()
+  const { toggleRightPanel } = useUIStore()
 
   const nodeId = selectedNodeIds[0]
 
@@ -91,7 +90,7 @@ export function FloatingToolbar() {
 
         <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
-        <ToolBtn icon={Sparkles} label="AI Expand" onClick={expandSelectedNode} color="#6366f1" />
+        <ToolBtn icon={Sparkles} label="AI Expand" onClick={toggleRightPanel} color="#6366f1" />
 
         <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 

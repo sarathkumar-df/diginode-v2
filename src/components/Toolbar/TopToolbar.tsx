@@ -1,7 +1,7 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
 import {
   Plus, Download, Search, Sun, Moon, Image,
-  Sparkles, Layers, Map, Wand2, Settings, Workflow,
+  Sparkles, Layers, Map as MapIcon, Wand2, Settings, Workflow,
   MonitorPlay, FileJson, FileText,
 } from 'lucide-react'
 import { useMindMapStore } from '@/store/mindmapStore'
@@ -233,7 +233,7 @@ export function TopToolbar({ onOpenGenerateModal, onOpenSettings }: Props) {
 
       {/* ── Maps ── */}
       <ToolBtn
-        icon={Map}
+        icon={MapIcon}
         label="Maps"
         tooltip="Open your saved maps"
         onClick={toggleLeftPanel}
@@ -274,7 +274,7 @@ export function TopToolbar({ onOpenGenerateModal, onOpenSettings }: Props) {
         onClick={toggleSearch}
       />
       <ToolBtn
-        icon={Map}
+        icon={MapIcon}
         label="Fit"
         tooltip="Fit all nodes into view"
         shortcut="⌘0"
