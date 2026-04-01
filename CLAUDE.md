@@ -8,12 +8,13 @@ DigoNode is an AI-powered mind mapping web application built with React, TypeScr
 |-------|-----------|
 | Frontend | React 18 + TypeScript + Vite |
 | Canvas Engine | React Flow v11 (reactflow) |
-| State Management | Zustand |
+| State Management | Zustand with `persist` middleware |
 | Styling | Tailwind CSS + custom CSS variables |
 | Animation | Framer Motion |
 | Icons | Lucide React |
-| AI | Anthropic Claude via Express proxy |
+| AI | Anthropic Claude + OpenAI (user-selectable) via Express proxy |
 | Backend | Express.js (AI proxy only) |
+| Export | html-to-image (PNG), native JSON/Markdown |
 
 ## Project Structure
 
@@ -21,26 +22,39 @@ DigoNode is an AI-powered mind mapping web application built with React, TypeScr
 src/
 ├── components/
 │   ├── Canvas/          # React Flow canvas, nodes, edges
-│   ├── Toolbar/         # Top toolbar, floating toolbar
-│   ├── Sidebar/         # Left panel (maps), Right panel (AI)
+│   │   └── MindMapCanvas.tsx   # nodeTypes, edgeTypes, fitView logic
+│   ├── Toolbar/
+│   │   ├── TopToolbar.tsx      # Top bar with labels, tooltips, export dropdown
+│   │   └── FloatingToolbar.tsx # Context toolbar on node select
+│   ├── Sidebar/
+│   │   ├── LeftSidebar.tsx     # Saved maps list
+│   │   └── RightSidebar.tsx    # AI tools panel (tabs: Tools / Chat)
 │   ├── AI/              # AI chat, suggestions UI
-│   └── UI/              # Modals, panels, shared UI
+│   └── UI/
+│       ├── GenerateMapModal.tsx  # Generate from topic or pasted text
+│       ├── SettingsModal.tsx     # AI provider + API key config
+│       ├── PresentationMode.tsx  # Presentation overlay + controls
+│       ├── SearchPanel.tsx
+│       └── FocusMode.tsx
 ├── store/
-│   ├── mindmapStore.ts  # Mind map data (nodes, edges, maps)
-│   └── uiStore.ts       # UI state (theme, panels, focus mode)
+│   ├── mindmapStore.ts  # Mind map data (nodes, edges, maps, layoutVersion)
+│   ├── uiStore.ts       # UI state (theme, panels, focus mode, presentation mode)
+│   └── settingsStore.ts # AI provider, model, API key (persisted)
 ├── services/
-│   └── aiService.ts     # All Anthropic API calls (via proxy)
+│   └── aiService.ts     # All AI API calls (via proxy), uses VITE_API_URL
 ├── hooks/
 │   ├── useMindMap.ts    # Mind map operations
-│   ├── useAI.ts         # AI feature hooks
+│   ├── useAI.ts         # AI feature hooks (fetchExpandSuggestions, addSuggestionNode, etc.)
 │   └── useKeyboard.ts   # Keyboard shortcuts
 ├── types/
 │   └── index.ts         # All TypeScript types
-└── utils/
-    ├── layoutEngine.ts  # Auto-layout algorithms
-    └── exportUtils.ts   # PNG, JSON export
+├── utils/
+│   ├── layoutEngine.ts  # Auto-layout algorithms
+│   └── exportUtils.ts   # PNG (html-to-image), JSON, Markdown export
+└── vite-env.d.ts        # Vite env type declarations (required for import.meta.env)
 server/
-└── index.js             # Express AI proxy server
+└── index.js             # Express AI proxy — supports Anthropic + OpenAI
+railway.toml             # Railway deploy config (startCommand = node server/index.js)
 ```
 
 ## Core Conventions
@@ -53,10 +67,12 @@ server/
 - Hook files: camelCase with `use` prefix (e.g., `useMindMap.ts`)
 
 ### State Management
-- **Mind map data** → `useMindMapStore` (nodes, edges, maps list)
-- **UI state** → `useUIStore` (theme, panel visibility, focus mode, selected nodes)
+- **Mind map data** → `useMindMapStore` (nodes, edges, maps list, layoutVersion)
+- **UI state** → `useUIStore` (theme, panel visibility, focus mode, presentation mode, selected nodes)
+- **Settings** → `useSettingsStore` (provider, model, apiKey — persisted to localStorage)
 - Never put UI state in mindmapStore or vice versa
 - Derive computed values with selectors, don't duplicate state
+- `layoutVersion` counter: increment in store to signal `MindMapCanvas` to run fitView after auto-layout (node count doesn't change during layout so a separate counter is needed)
 
 ### Styling Rules
 - Use Tailwind utility classes as the primary styling method
@@ -64,13 +80,17 @@ server/
 - Dark mode via `dark:` Tailwind prefix + `class` strategy on `<html>`
 - Node colors use the `node.*` Tailwind theme tokens
 - Never use inline styles except for dynamic values (positions, transform)
+- No gradients in panels — single `var(--brand)` accent only (Linear/Notion aesthetic)
 
 ### AI Features Convention
 - All AI calls go through `src/services/aiService.ts`
 - The service calls `/api/ai/*` endpoints on the Express proxy
+- `API_BASE` is built from `VITE_API_URL` env var: `(import.meta.env.VITE_API_URL ?? '') + '/api/ai'`
+- **Every fetch in the frontend that calls `/api/ai/*` must use `API_BASE`, never a hardcoded relative path** — relative paths break in production (Vercel has no backend)
 - AI responses are always streamed when possible
 - Show loading states with the `AIThinkingIndicator` component
 - Every AI action is undoable (store action history)
+- AI node expansion returns suggestions as a list — user adds them individually via `addSuggestionNode()` or all at once via `addAllSuggestions()`
 
 ### React Flow Rules
 - Custom node types are registered in `MindMapCanvas.tsx` nodeTypes object
@@ -78,6 +98,25 @@ server/
 - Node data shape: `{ label, color, icon, shape, checked, collapsed, notes }`
 - Never mutate React Flow nodes/edges directly — always go through Zustand store
 - Use `useReactFlow()` hook for viewport operations
+- fitView is deferred 50ms with setTimeout after node additions so React Flow finishes positioning first
+
+### Auto-Layout (Column-Based)
+- Root node is at x=0; each depth level is at `x = depth * H_GAP` (H_GAP=230 for level 1, 190 deeper)
+- Y positions are distributed based on subtree height, not radial angles
+- `autoLayout()` in mindmapStore uses DFS, calls `subtreeHeight()` recursively, then `assign()` to place nodes
+- After `autoLayout()`, `layoutVersion` is incremented → `MindMapCanvas` watches it and calls `fitView`
+- `addAINodes()` snaps new nodes to the same X column as existing siblings
+
+### Presentation Mode
+- Entered via `enterPresentationMode(order: string[])` in uiStore
+- `order` is built by DFS traversal in `TopToolbar.handlePresentationMode`
+- `MindMapCanvas` watches `presentationIndex` and calls `fitView` to the current node
+- Non-current nodes are dimmed via the existing `.mindmap-node.focused-out` CSS class
+- `AnimatePresence` in `PresentationMode.tsx` requires a **single keyed `motion` element** as direct child — not a React fragment (fragments swallow animations)
+
+### Lucide Icon Naming Conflicts
+- `Map` is both a Lucide icon and a JS built-in constructor
+- Always import the Lucide map icon as `Map as MapIcon` to avoid shadowing the built-in `Map`
 
 ### File Naming
 ```
@@ -105,17 +144,56 @@ Types:          index.ts in types/
 | Space | Pan canvas (hold) |
 | F | Toggle focus mode |
 | 1-6 | Set node color |
+| ArrowLeft/Right | Presentation mode: prev/next node |
 
 ## AI Features
 
-1. **Generate Ideas** — Given a topic, generate mind map structure
-2. **Expand Node** — Add AI-generated child nodes to selected node
-3. **Summarize Map** — Convert mind map to prose summary
-4. **Brainstorm** — Chat interface for iterative ideation
-5. **Auto-Connect** — Find non-obvious connections between nodes
-6. **Write from Map** — Generate document from mind map structure
+1. **Generate from Topic** — Given a topic, generate full mind map structure (streamed)
+2. **Generate from Text** — Paste up to ~4,000 words; AI extracts structure into a mind map (streamed)
+3. **Expand Node** — Fetch AI-generated child suggestions; user adds individually or all at once
+4. **Summarize Map** — Convert mind map to prose summary (streamed)
+5. **Brainstorm / Chat** — Chat interface for iterative ideation with map context
+6. **Auto-Connect** — Find non-obvious connections between nodes
+7. **Write from Map** — Generate essay, outline, or bullet doc from map structure (streamed)
 
 All AI prompts include the full mind map context as JSON for coherent responses.
+Both Anthropic and OpenAI providers are supported; user selects in Settings modal.
+
+## Export Features
+
+- **PNG** — Captures the React Flow canvas via `html-to-image`, excludes controls/minimap/panels, 2x pixel ratio
+- **JSON** — Exports nodes + edges as structured JSON file
+- **Markdown** — Exports map as indented Markdown outline
+
+## Deployment
+
+| Service | Purpose | Config |
+|---------|---------|--------|
+| Railway | Express backend (AI proxy) | `railway.toml` sets `startCommand = node server/index.js` |
+| Vercel | React frontend (static) | Set `VITE_API_URL` env var to Railway backend URL |
+
+### Environment Variables
+
+**Railway (backend):**
+```
+ANTHROPIC_API_KEY=...
+OPENAI_API_KEY=...
+PORT=3001
+FRONTEND_URL=https://your-vercel-app.vercel.app
+```
+
+**Vercel (frontend build-time):**
+```
+VITE_API_URL=https://your-railway-app.up.railway.app
+```
+
+> `VITE_` variables are baked into the bundle at build time. After adding/changing them in Vercel, you must trigger a new deployment for changes to take effect.
+
+### Key Deployment Rules
+- Railway must run `node server/index.js` only — `npm start` also starts Vite dev server which breaks the deploy
+- The Railway domain port must match `PORT` env var (set `PORT=3001` in Railway variables)
+- Never use hardcoded relative `/api/ai/...` URLs in the frontend — always use `API_BASE` from `aiService.ts`
+- `FRONTEND_URL` on Railway must match the exact Vercel domain for CORS to work
 
 ## Adding New Features
 
@@ -125,13 +203,16 @@ When asked to add a new feature:
 3. Implement the UI component
 4. Wire up keyboard shortcut if applicable
 5. Add undo/redo support via history in the store
-6. Update this CLAUDE.md if the architecture changes
+6. If the feature makes AI calls, add the endpoint to `server/index.js` and the service function to `aiService.ts`
+7. Update this CLAUDE.md if the architecture changes
 
 ## Do Not
 
 - Do not use class components
 - Do not use Redux (use Zustand)
 - Do not add global CSS except in `src/index.css`
-- Do not call the Anthropic API directly from the frontend (use the Express proxy at `/api/ai`)
-- Do not store sensitive data (API keys) in frontend state or localStorage
+- Do not call the Anthropic/OpenAI API directly from the frontend (use the Express proxy at `/api/ai`)
+- Do not use hardcoded relative paths like `/api/ai/...` in the frontend — use `API_BASE` from aiService or build it from `import.meta.env.VITE_API_URL`
+- Do not store sensitive data (API keys) in frontend state or localStorage beyond what `settingsStore` (persisted Zustand) already handles
 - Do not add dependencies without checking if an existing one covers the use case
+- Do not wrap `AnimatePresence` children in a React fragment — always use a single keyed `motion.*` element as the direct child
