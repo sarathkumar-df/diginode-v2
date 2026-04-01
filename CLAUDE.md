@@ -182,23 +182,33 @@ Both Anthropic and OpenAI providers are supported; user selects in Settings moda
 
 ### Flow
 1. User visits any protected route → redirected to `/sign-in`
-2. User clicks "Continue with Microsoft" → MSAL opens a popup to Microsoft login
-3. On success, MSAL stores the account in `sessionStorage` and sets it as the active account
-4. `useIsAuthenticated()` returns `true` → user is redirected to `/dashboard`
-5. Every API call fetches a fresh ID token via `msalInstance.acquireTokenSilent()` and sends it as `Authorization: Bearer <token>`
-6. Express `requireAuth` middleware verifies the token signature using Microsoft's public JWKS keys
+2. User clicks "Continue with Microsoft" → `msalInstance.loginRedirect()` navigates the whole page to Microsoft's login
+3. Microsoft authenticates the user and redirects back to `redirectUri` (e.g. `http://localhost:5173`)
+4. On return, `AuthProvider` calls `msalInstance.handleRedirectPromise()` which processes the token from the URL hash and sets the active account
+5. `useIsAuthenticated()` returns `true` → `SignInPage` useEffect redirects to `/dashboard`
+6. Every API call fetches a fresh ID token via `msalInstance.acquireTokenSilent()` and sends it as `Authorization: Bearer <token>`
+7. Express `requireAuth` middleware verifies the token signature using Microsoft's public JWKS keys
 
-### Key hooks
+### Why redirect flow, not popup
+`loginPopup()` is blocked by most browsers unless the popup is opened synchronously in a user gesture handler. React's async event handling and StrictMode double-renders both interfere with this. `loginRedirect()` is fully reliable — use it always.
+
+### Key hooks / exports
 - `useCurrentUser()` — returns `{ id, name, email, tenantId }` or `null` if not signed in
-- `useGetToken()` — returns an async function that gets a fresh ID token (used for future direct fetch calls outside aiService)
-- `useIsAuthenticated()` — from `@azure/msal-react`, used in ProtectedRoute
+- `useGetToken()` — returns an async function that gets a fresh ID token (for direct fetch calls outside aiService)
+- `useIsAuthenticated()` — from `@azure/msal-react`, used in ProtectedRoute and SignInPage
+- `msalInstance` — exported singleton, used directly in SignInPage and aiService to avoid hook timing issues
+
+### AuthProvider initialization
+`AuthProvider` calls `msalInstance.initialize()` then `handleRedirectPromise()` before rendering children. This is **required** — rendering `MsalProvider` before `initialize()` resolves causes `interaction_in_progress` errors. The app renders `null` until ready.
 
 ### Azure App Registration setup (required)
 1. Azure Portal → Azure Active Directory → App Registrations → New registration
-2. Set Redirect URI: `http://localhost:5173` (dev) + `https://your-vercel-app.vercel.app` (prod)
-3. Under Authentication → enable "ID tokens" under Implicit grant
-4. Copy **Application (client) ID** → `VITE_AZURE_CLIENT_ID` + `AZURE_CLIENT_ID`
-5. Copy **Directory (tenant) ID** → `VITE_AZURE_TENANT_ID` + `AZURE_TENANT_ID`
+2. Under **Authentication** → Add a platform → **Single-page application (SPA)**
+3. Set Redirect URIs: `http://localhost:5173` (dev) + `https://your-vercel-app.vercel.app` (prod)
+   - Must be under **SPA** platform, not Web — Web platform does not support MSAL browser redirect flow
+4. Enable **ID tokens** under Implicit grant & hybrid flows
+5. Copy **Application (client) ID** → `VITE_AZURE_CLIENT_ID` + `AZURE_CLIENT_ID`
+6. Copy **Directory (tenant) ID** → `VITE_AZURE_TENANT_ID` + `AZURE_TENANT_ID`
 
 ### Environment variables for auth
 **Railway (backend):**
@@ -273,6 +283,9 @@ When asked to add a new feature:
 - Do not call the Anthropic/OpenAI API directly from the frontend (use the Express proxy at `/api/ai`)
 - Do not set `SKIP_AUTH=true` in production — it disables all authentication on the backend
 - Do not store the MSAL token in Zustand or any persistent state — always fetch via `acquireTokenSilent()`
+- Do not use `loginPopup()` — use `loginRedirect()` only. Popups are blocked by browsers and fail silently with React StrictMode
+- Do not render `MsalProvider` before `msalInstance.initialize()` resolves — always wait in `AuthProvider` or you will get `interaction_in_progress` errors
+- Do not register redirect URIs under the "Web" platform in Azure — must be under "Single-page application (SPA)"
 - Do not use hardcoded relative paths like `/api/ai/...` in the frontend — use `API_BASE` from aiService or build it from `import.meta.env.VITE_API_URL`
 - Do not store sensitive data (API keys) in frontend state or localStorage beyond what `settingsStore` (persisted Zustand) already handles
 - Do not add dependencies without checking if an existing one covers the use case

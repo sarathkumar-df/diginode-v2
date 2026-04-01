@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import { MsalProvider, useMsal } from '@azure/msal-react'
 import { PublicClientApplication, EventType, AuthenticationResult } from '@azure/msal-browser'
 import { msalConfig } from './msalConfig'
@@ -21,9 +21,9 @@ export function useCurrentUser() {
   const account = accounts[0] ?? null
   if (!account) return null
   return {
-    id: account.localAccountId,          // Microsoft object ID — used as user ID in DB
+    id: account.localAccountId,
     name: account.name ?? '',
-    email: account.username ?? '',        // UPN / email
+    email: account.username ?? '',
     tenantId: account.tenantId ?? '',
   }
 }
@@ -40,9 +40,8 @@ export function useGetToken() {
         scopes: ['openid', 'profile', 'email'],
         account: accounts[0],
       })
-      return result.idToken  // We send the ID token to our Express backend for verification
+      return result.idToken
     } catch {
-      // Silent token acquisition failed — fall back to popup
       try {
         const result = await instance.acquireTokenPopup({
           scopes: ['openid', 'profile', 'email'],
@@ -55,28 +54,40 @@ export function useGetToken() {
   }
 }
 
-// ── Initializer: restore active account on page load ────────────────────────
-
-function MsalInitializer({ children }: { children: ReactNode }) {
-  const { instance } = useMsal()
-
-  useEffect(() => {
-    // Restore previously signed-in account from cache
-    const accounts = instance.getAllAccounts()
-    if (accounts.length > 0 && !instance.getActiveAccount()) {
-      instance.setActiveAccount(accounts[0])
-    }
-  }, [instance])
-
-  return <>{children}</>
-}
-
 // ── Provider component ───────────────────────────────────────────────────────
+// MSAL requires initialize() to be called and resolved before any interaction.
+// We render null until initialization is complete to prevent the
+// interaction_in_progress error caused by React StrictMode double-renders.
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    msalInstance.initialize().then(() => {
+      // Handle the redirect response when returning from Microsoft login page
+      return msalInstance.handleRedirectPromise()
+    }).then((response) => {
+      if (response?.account) {
+        msalInstance.setActiveAccount(response.account)
+      } else {
+        // Restore previously signed-in account from cache
+        const accounts = msalInstance.getAllAccounts()
+        if (accounts.length > 0 && !msalInstance.getActiveAccount()) {
+          msalInstance.setActiveAccount(accounts[0])
+        }
+      }
+      setReady(true)
+    }).catch((err) => {
+      console.error('MSAL init error', err)
+      setReady(true) // still render so user sees the sign-in page
+    })
+  }, [])
+
+  if (!ready) return null
+
   return (
     <MsalProvider instance={msalInstance}>
-      <MsalInitializer>{children}</MsalInitializer>
+      {children}
     </MsalProvider>
   )
 }

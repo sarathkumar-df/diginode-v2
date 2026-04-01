@@ -1,13 +1,15 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMsal, useIsAuthenticated } from '@azure/msal-react'
+import { useIsAuthenticated } from '@azure/msal-react'
 import { Layers, Loader2 } from 'lucide-react'
 import { loginRequest } from '@/auth/msalConfig'
+import { msalInstance } from '@/auth/AuthProvider'
 
 export function SignInPage() {
-  const { instance, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
   const navigate = useNavigate()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   // If already signed in, send to dashboard
   useEffect(() => {
@@ -15,23 +17,25 @@ export function SignInPage() {
   }, [isAuthenticated, navigate])
 
   const handleSignIn = async () => {
+    if (loading) return
+    setLoading(true)
+    setError('')
     try {
-      await instance.loginPopup(loginRequest)
-      navigate('/dashboard', { replace: true })
-    } catch (err) {
-      // User closed the popup — no action needed
-      console.error('Sign in cancelled or failed', err)
+      // Redirect flow: navigates away to Microsoft login, returns to redirectUri
+      // More reliable than popup (can't be blocked by browser)
+      await msalInstance.loginRedirect(loginRequest)
+    } catch (err: any) {
+      console.error('Sign in failed', err)
+      setError('Sign in failed. Please try again.')
+      setLoading(false)
     }
   }
-
-  const loading = inProgress !== 'none'
 
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center gap-10 px-4"
       style={{ background: 'var(--canvas-bg)' }}
     >
-      {/* Brand */}
       <div className="flex flex-col items-center gap-4">
         <div className="w-14 h-14 rounded-2xl bg-indigo-500 flex items-center justify-center shadow-lg">
           <Layers size={28} color="white" />
@@ -46,7 +50,6 @@ export function SignInPage() {
         </div>
       </div>
 
-      {/* Sign-in card */}
       <div
         className="w-full max-w-sm rounded-2xl border p-8 flex flex-col gap-6"
         style={{
@@ -67,19 +70,18 @@ export function SignInPage() {
         <button
           onClick={handleSignIn}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border text-sm font-medium transition-all duration-150 disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border text-sm font-medium transition-all duration-150 disabled:opacity-60"
           style={{
             background: 'var(--canvas-bg)',
             borderColor: 'var(--panel-border)',
             color: 'var(--text-primary)',
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--brand-light)' }}
+          onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = 'var(--brand-light)' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--canvas-bg)' }}
         >
           {loading ? (
             <Loader2 size={16} className="animate-spin" />
           ) : (
-            /* Microsoft logo SVG */
             <svg width="16" height="16" viewBox="0 0 21 21" fill="none">
               <rect x="1" y="1" width="9" height="9" fill="#F25022" />
               <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
@@ -87,8 +89,10 @@ export function SignInPage() {
               <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
             </svg>
           )}
-          {loading ? 'Signing in…' : 'Continue with Microsoft'}
+          {loading ? 'Redirecting to Microsoft…' : 'Continue with Microsoft'}
         </button>
+
+        {error && <p className="text-xs text-red-500 text-center">{error}</p>}
 
         <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>
           By signing in, you agree to our terms of service and privacy policy.
