@@ -39,7 +39,8 @@ export function SettingsModal({ open, onClose }: Props) {
     setTestStatus('loading')
     setTestError('')
     try {
-      const res = await fetch('/api/ai/test-connection', {
+      const API_BASE = (import.meta.env.VITE_API_URL ?? '') + '/api/ai'
+      const res = await fetch(`${API_BASE}/test-connection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, apiKey: localKey.trim(), model }),
