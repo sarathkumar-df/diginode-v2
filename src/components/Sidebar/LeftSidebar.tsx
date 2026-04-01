@@ -1,14 +1,47 @@
 import { useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Trash2, Edit2, Check, X } from 'lucide-react'
-import { useMindMapStore } from '@/store/mindmapStore'
+import { Plus, Trash2, Edit2, Check, X, Loader2 } from 'lucide-react'
+import { useMindMapStore, createDefaultMapData } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
+import { createMap, deleteMap, renameMap } from '@/services/mapService'
+import { MapMeta } from '@/types'
 
 export function LeftSidebar() {
   const { leftPanelOpen } = useUIStore()
-  const { maps, activeMapId, createMap, switchMap, deleteMap, renameMap } = useMindMapStore()
+  const { maps, activeMapId, addMapToList, updateMapMeta, removeMap } = useMindMapStore()
+  const navigate = useNavigate()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  const handleCreate = useCallback(async () => {
+    if (creating) return
+    setCreating(true)
+    try {
+      const { id, title, nodes, edges } = createDefaultMapData()
+      await createMap(id, title, nodes, edges)
+      const meta: MapMeta = {
+        id,
+        title,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rootColor: '#6366f1',
+      }
+      addMapToList(meta)
+      navigate(`/map/${id}`)
+    } finally {
+      setCreating(false)
+    }
+  }, [creating, addMapToList, navigate])
+
+  const handleDelete = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm('Delete this map? This cannot be undone.')) return
+    await deleteMap(id)
+    removeMap(id)
+    if (activeMapId === id) navigate('/dashboard', { replace: true })
+  }, [activeMapId, removeMap, navigate])
 
   const startEdit = useCallback((id: string, title: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -16,10 +49,12 @@ export function LeftSidebar() {
     setEditTitle(title)
   }, [])
 
-  const confirmEdit = useCallback(() => {
-    if (editingId && editTitle.trim()) renameMap(editingId, editTitle.trim())
+  const confirmEdit = useCallback(async () => {
+    if (!editingId || !editTitle.trim()) { setEditingId(null); return }
+    await renameMap(editingId, editTitle.trim())
+    updateMapMeta(editingId, editTitle.trim())
     setEditingId(null)
-  }, [editingId, editTitle, renameMap])
+  }, [editingId, editTitle, updateMapMeta])
 
   return (
     <AnimatePresence>
@@ -45,10 +80,11 @@ export function LeftSidebar() {
               My Maps
             </h2>
             <button
-              onClick={() => createMap()}
-              className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-500 text-white hover:bg-indigo-600 transition-colors"
+              onClick={handleCreate}
+              disabled={creating}
+              className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-500 text-white hover:bg-indigo-600 transition-colors disabled:opacity-60"
             >
-              <Plus size={14} />
+              {creating ? <Loader2 size={13} className="animate-spin" /> : <Plus size={14} />}
             </button>
           </div>
 
@@ -61,11 +97,11 @@ export function LeftSidebar() {
                     ? 'bg-indigo-50 dark:bg-indigo-900/30'
                     : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
                 }`}
-                onClick={() => switchMap(map.id)}
+                onClick={() => navigate(`/map/${map.id}`)}
               >
                 <div
                   className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ background: map.nodes[0]?.data?.color ?? '#6366f1' }}
+                  style={{ background: map.rootColor ?? '#6366f1' }}
                 />
 
                 {editingId === map.id ? (
@@ -103,14 +139,12 @@ export function LeftSidebar() {
                       >
                         <Edit2 size={11} />
                       </button>
-                      {maps.length > 1 && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); deleteMap(map.id) }}
-                          className="text-gray-400 hover:text-red-500"
-                        >
-                          <Trash2 size={11} />
-                        </button>
-                      )}
+                      <button
+                        onClick={(e) => handleDelete(map.id, e)}
+                        className="text-gray-400 hover:text-red-500"
+                      >
+                        <Trash2 size={11} />
+                      </button>
                     </div>
                   </>
                 )}

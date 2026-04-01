@@ -37,6 +37,16 @@ export interface MindMapNodeData {
 export type MindMapNode = Node<MindMapNodeData>
 export type MindMapEdge = Edge<{ color?: string }>
 
+// ─── Map Metadata (list view — no nodes/edges) ───────────────────────────────
+
+export interface MapMeta {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  rootColor?: string  // root node color, returned by GET /api/maps
+}
+
 // ─── Mind Map Document ───────────────────────────────────────────────────────
 
 export interface MindMap {
@@ -108,6 +118,54 @@ export interface MindMapExport {
     checked?: boolean
   }>
   edges: Array<{ source: string; target: string }>
+}
+
+// ─── Teams ───────────────────────────────────────────────────────────────────
+
+export interface TeamMember {
+  id: string
+  name: string
+  email: string
+  role: 'owner' | 'member'
+  joinedAt: string
+}
+
+export interface Team {
+  id: string
+  name: string
+  ownerId: string
+  role: 'owner' | 'member'
+  memberCount: number
+  createdAt: string
+}
+
+export interface TeamDetail extends Team {
+  myRole: 'owner' | 'member'
+  members: TeamMember[]
+}
+
+export interface InviteInfo {
+  token: string
+  teamId: string
+  teamName: string
+  memberCount: number
+  expiresAt: string
+}
+
+// ─── Map Sharing ─────────────────────────────────────────────────────────────
+
+export type MapPermission = 'view' | 'edit'
+
+export interface MapShare {
+  teamId: string
+  teamName: string
+  permission: MapPermission
+  sharedAt: string
+}
+
+export interface SharedMapMeta extends MapMeta {
+  permission: MapPermission
+  ownerName: string
 }
 
 // ─── UI State ────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Eye, EyeOff, CheckCircle, AlertCircle, Loader2, Settings } from 'lucide-react'
+import { X, CheckCircle, AlertCircle, Loader2, Settings } from 'lucide-react'
 import { useSettingsStore, AIProvider, MODELS } from '@/store/settingsStore'
 
 interface Props {
@@ -9,11 +9,7 @@ interface Props {
 }
 
 export function SettingsModal({ open, onClose }: Props) {
-  const { provider, apiKey, model, setProvider, setApiKey, setModel } =
-    useSettingsStore()
-
-  const [localKey, setLocalKey] = useState(apiKey)
-  const [showKey, setShowKey] = useState(false)
+  const { provider, model, setProvider, setModel } = useSettingsStore()
   const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
   const [testError, setTestError] = useState('')
 
@@ -25,17 +21,7 @@ export function SettingsModal({ open, onClose }: Props) {
     [setProvider]
   )
 
-  const handleSave = useCallback(() => {
-    setApiKey(localKey.trim())
-    onClose()
-  }, [localKey, setApiKey, onClose])
-
   const handleTest = useCallback(async () => {
-    if (!localKey.trim()) {
-      setTestStatus('error')
-      setTestError('Please enter an API key first.')
-      return
-    }
     setTestStatus('loading')
     setTestError('')
     try {
@@ -43,7 +29,7 @@ export function SettingsModal({ open, onClose }: Props) {
       const res = await fetch(`${API_BASE}/test-connection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, apiKey: localKey.trim(), model }),
+        body: JSON.stringify({ provider, model }),
       })
       let data: any = {}
       try { data = await res.json() } catch { data = { error: `Server error (${res.status})` } }
@@ -53,14 +39,13 @@ export function SettingsModal({ open, onClose }: Props) {
       } else {
         setTestStatus('error')
         const raw = data.error
-        const msg = typeof raw === 'string' ? raw : raw?.message ?? JSON.stringify(raw) ?? 'Connection failed.'
-        setTestError(msg)
+        setTestError(typeof raw === 'string' ? raw : raw?.message ?? 'Connection failed.')
       }
     } catch {
       setTestStatus('error')
       setTestError('Could not reach the server.')
     }
-  }, [localKey, provider, model])
+  }, [provider, model])
 
   const currentModels = MODELS[provider]
 
@@ -97,7 +82,7 @@ export function SettingsModal({ open, onClose }: Props) {
                     AI Settings
                   </h2>
                   <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    Configure your AI provider
+                    Choose your AI provider and model
                   </p>
                 </div>
               </div>
@@ -115,7 +100,7 @@ export function SettingsModal({ open, onClose }: Props) {
                 className="flex rounded-xl border overflow-hidden"
                 style={{ borderColor: 'var(--panel-border)' }}
               >
-                {(['openai', 'anthropic'] as AIProvider[]).map((p) => (
+                {(['anthropic', 'openai'] as AIProvider[]).map((p) => (
                   <button
                     key={p}
                     onClick={() => handleProviderChange(p)}
@@ -133,7 +118,7 @@ export function SettingsModal({ open, onClose }: Props) {
             </div>
 
             {/* Model selector */}
-            <div className="mb-4">
+            <div className="mb-5">
               <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
                 Model
               </label>
@@ -155,38 +140,6 @@ export function SettingsModal({ open, onClose }: Props) {
               </select>
             </div>
 
-            {/* API Key input */}
-            <div className="mb-4">
-              <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-                API Key
-              </label>
-              <div className="relative">
-                <input
-                  type={showKey ? 'text' : 'password'}
-                  value={localKey}
-                  onChange={(e) => { setLocalKey(e.target.value); setTestStatus('idle') }}
-                  placeholder={provider === 'openai' ? 'sk-...' : 'sk-ant-...'}
-                  className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none pr-10"
-                  style={{
-                    background: 'var(--canvas-bg)',
-                    borderColor: 'var(--panel-border)',
-                    color: 'var(--text-primary)',
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKey((s) => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
-                  style={{ color: 'var(--text-muted)' }}
-                >
-                  {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-              <p className="mt-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                Your key is stored locally and never sent to our servers.
-              </p>
-            </div>
-
             {/* Test result */}
             {testStatus === 'ok' && (
               <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 text-sm text-green-600 dark:text-green-400">
@@ -206,7 +159,7 @@ export function SettingsModal({ open, onClose }: Props) {
               <button
                 onClick={handleTest}
                 disabled={testStatus === 'loading'}
-                className="flex-1 py-2.5 rounded-xl border text-sm font-medium transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-center gap-1.5"
+                className="flex-1 py-2.5 rounded-xl border text-sm font-medium transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-center gap-1.5 disabled:opacity-60"
                 style={{ borderColor: 'var(--panel-border)', color: 'var(--text-secondary)' }}
               >
                 {testStatus === 'loading' ? (
@@ -216,7 +169,7 @@ export function SettingsModal({ open, onClose }: Props) {
                 )}
               </button>
               <button
-                onClick={handleSave}
+                onClick={onClose}
                 className="flex-1 py-2.5 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors"
               >
                 Save

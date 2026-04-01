@@ -5,8 +5,8 @@ import { msalInstance } from '@/auth/AuthProvider'
 const API_BASE = (import.meta.env.VITE_API_URL ?? '') + '/api/ai'
 
 function getAIConfig() {
-  const { provider, apiKey, model } = useSettingsStore.getState()
-  return { provider, apiKey, model }
+  const { provider, model } = useSettingsStore.getState()
+  return { provider, model }
 }
 
 // Fetch a fresh Microsoft ID token to authenticate requests against the backend.

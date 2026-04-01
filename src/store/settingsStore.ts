@@ -23,22 +23,17 @@ const DEFAULT_MODEL: Record<AIProvider, string> = {
 
 interface SettingsStore {
   provider: AIProvider
-  apiKey: string
   model: string
   setProvider: (p: AIProvider) => void
-  setApiKey: (k: string) => void
   setModel: (m: string) => void
 }
 
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
-      provider: 'openai',
-      apiKey: '',
-      model: DEFAULT_MODEL.openai,
-      setProvider: (provider) =>
-        set({ provider, model: DEFAULT_MODEL[provider] }),
-      setApiKey: (apiKey) => set({ apiKey }),
+      provider: 'anthropic',
+      model: DEFAULT_MODEL.anthropic,
+      setProvider: (provider) => set({ provider, model: DEFAULT_MODEL[provider] }),
       setModel: (model) => set({ model }),
     }),
     { name: 'digonode-settings' }

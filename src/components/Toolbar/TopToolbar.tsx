@@ -1,13 +1,17 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Plus, Download, Search, Sun, Moon, Image,
   Sparkles, Layers, Map as MapIcon, Wand2, Settings, Workflow,
-  MonitorPlay, FileJson, FileText,
+  MonitorPlay, FileJson, FileText, ArrowLeft, Check, Share2,
 } from 'lucide-react'
-import { useMindMapStore } from '@/store/mindmapStore'
+import { useMindMapStore, createDefaultMapData } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
 import { exportToJSON, exportToMarkdown, exportToPng } from '@/utils/exportUtils'
 import { useReactFlow } from 'reactflow'
+import { createMap as createMapApi, renameMap } from '@/services/mapService'
+import { PresenceAvatars } from '@/components/UI/PresenceAvatars'
+import { MapMeta } from '@/types'
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
@@ -167,10 +171,16 @@ function ExportMenu({ title, nodes, edges }: { title: string; nodes: any; edges:
 interface Props {
   onOpenGenerateModal: () => void
   onOpenSettings: () => void
+  onOpenShare: () => void
+  readOnly?: boolean
 }
 
-export function TopToolbar({ onOpenGenerateModal, onOpenSettings }: Props) {
-  const { activeMap, nodes, edges } = useMindMapStore()
+export function TopToolbar({ onOpenGenerateModal, onOpenSettings, onOpenShare, readOnly = false }: Props) {
+  const { activeMap, nodes, edges, addMapToList, activeMapId, updateMapMeta } = useMindMapStore()
+  const navigate = useNavigate()
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const titleInputRef = useRef<HTMLInputElement>(null)
   const {
     theme, toggleTheme,
     leftPanelOpen, toggleLeftPanel,
@@ -183,6 +193,21 @@ export function TopToolbar({ onOpenGenerateModal, onOpenSettings }: Props) {
 
   const map = activeMap()
   const title = map?.title ?? 'My Mind Map'
+
+  const startEditTitle = useCallback(() => {
+    setTitleDraft(title)
+    setEditingTitle(true)
+    setTimeout(() => titleInputRef.current?.select(), 0)
+  }, [title])
+
+  const commitTitle = useCallback(async () => {
+    const trimmed = titleDraft.trim()
+    if (trimmed && trimmed !== title && activeMapId) {
+      updateMapMeta(activeMapId, trimmed)
+      await renameMap(activeMapId, trimmed)
+    }
+    setEditingTitle(false)
+  }, [titleDraft, title, activeMapId, updateMapMeta])
 
   const handlePresentationMode = useCallback(() => {
     const { nodes: n, edges: e } = useMindMapStore.getState()
@@ -214,20 +239,54 @@ export function TopToolbar({ onOpenGenerateModal, onOpenSettings }: Props) {
         boxShadow: '0 2px 20px rgba(0,0,0,0.10)',
       }}
     >
-      {/* ── Brand ── */}
-      <Tooltip label="DigoNode — Mind Mapping">
-        <div className="flex items-center gap-2 px-1 mr-1">
-          <div className="w-6 h-6 rounded-md bg-indigo-500 flex items-center justify-center flex-shrink-0">
-            <Layers size={13} color="white" />
-          </div>
-          <span
-            className="text-sm font-semibold max-w-[110px] truncate"
-            style={{ color: 'var(--text-primary)' }}
+      {/* ── Back + Title ── */}
+      <div className="flex items-center gap-1.5 px-1 mr-1">
+        <Tooltip label="Back to dashboard">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="w-6 h-6 rounded-md flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
+            style={{ color: 'var(--text-muted)' }}
           >
-            {title}
-          </span>
+            <ArrowLeft size={13} />
+          </button>
+        </Tooltip>
+        <div className="w-6 h-6 rounded-md bg-indigo-500 flex items-center justify-center flex-shrink-0">
+          <Layers size={13} color="white" />
         </div>
-      </Tooltip>
+        {editingTitle ? (
+          <div className="flex items-center gap-1">
+            <input
+              ref={titleInputRef}
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitTitle()
+                if (e.key === 'Escape') setEditingTitle(false)
+                e.stopPropagation()
+              }}
+              onBlur={commitTitle}
+              className="text-sm font-semibold bg-transparent outline-none border-b w-[110px]"
+              style={{ color: 'var(--text-primary)', borderColor: '#6366f1' }}
+            />
+            <button onClick={commitTitle} style={{ color: '#6366f1' }}>
+              <Check size={12} />
+            </button>
+          </div>
+        ) : (
+          <Tooltip label="Click to rename">
+            <button
+              onClick={startEditTitle}
+              className="text-sm font-semibold max-w-[110px] truncate text-left hover:opacity-70 transition-opacity"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              {title}
+            </button>
+          </Tooltip>
+        )}
+      </div>
+
+      {/* ── Live presence avatars ── */}
+      <PresenceAvatars />
 
       <Divider />
 
@@ -243,7 +302,13 @@ export function TopToolbar({ onOpenGenerateModal, onOpenSettings }: Props) {
         icon={Plus}
         label="New"
         tooltip="Create a new blank map"
-        onClick={() => useMindMapStore.getState().createMap()}
+        onClick={async () => {
+          const { id, title, nodes: n, edges: e } = createDefaultMapData()
+          await createMapApi(id, title, n, e)
+          const meta: MapMeta = { id, title, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), rootColor: '#6366f1' }
+          addMapToList(meta)
+          navigate(`/map/${id}`)
+        }}
       />
 
       <Divider />
@@ -255,12 +320,14 @@ export function TopToolbar({ onOpenGenerateModal, onOpenSettings }: Props) {
         tooltip="Generate a map with AI from a topic or text"
         onClick={onOpenGenerateModal}
         accent
+        disabled={readOnly}
       />
       <ToolBtn
         icon={Workflow}
         label="Layout"
         tooltip="Auto-arrange all nodes into a clean tree"
         onClick={() => useMindMapStore.getState().autoLayout()}
+        disabled={readOnly}
       />
 
       <Divider />
@@ -325,9 +392,15 @@ export function TopToolbar({ onOpenGenerateModal, onOpenSettings }: Props) {
         onClick={toggleTheme}
       />
       <ToolBtn
+        icon={Share2}
+        label="Share"
+        tooltip="Share this map with a team"
+        onClick={onOpenShare}
+      />
+      <ToolBtn
         icon={Settings}
         label="Settings"
-        tooltip="Configure AI provider and API key"
+        tooltip="Configure AI provider and model"
         onClick={onOpenSettings}
       />
     </div>

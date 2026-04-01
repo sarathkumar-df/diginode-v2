@@ -8,14 +8,15 @@ DigoNode is an AI-powered mind mapping web application built with React, TypeScr
 |-------|-----------|
 | Frontend | React 18 + TypeScript + Vite |
 | Canvas Engine | React Flow v11 (reactflow) |
-| State Management | Zustand with `persist` middleware |
+| State Management | Zustand (no persist — data lives in Neon DB) |
 | Styling | Tailwind CSS + custom CSS variables |
 | Animation | Framer Motion |
 | Icons | Lucide React |
 | AI | Anthropic Claude + OpenAI (user-selectable) via Express proxy |
 | Auth | Microsoft Entra ID (Azure AD) via MSAL — `@azure/msal-react` frontend, `jwks-rsa` + `jsonwebtoken` backend |
 | Routing | React Router v6 (`react-router-dom`) |
-| Backend | Express.js (AI proxy + auth middleware) |
+| Backend | Express.js (AI proxy + auth middleware + map CRUD) |
+| Database | Neon DB (serverless Postgres) via `pg` driver |
 | Export | html-to-image (PNG), native JSON/Markdown |
 
 ## Project Structure
@@ -64,8 +65,10 @@ src/
 │   └── exportUtils.ts   # PNG (html-to-image), JSON, Markdown export
 └── vite-env.d.ts        # Vite env type declarations (required for import.meta.env)
 server/
-├── index.js             # Express server — AI proxy with auth middleware on all routes
-└── auth.js              # requireAuth middleware — Microsoft JWT verification via jwks-rsa
+├── index.js             # Express server — AI proxy + map CRUD + user upsert endpoints
+├── auth.js              # requireAuth middleware — Microsoft JWT verification via jwks-rsa
+├── db.js                # Neon DB pool (pg) — reads DATABASE_URL from env
+└── schema.sql           # One-time DDL: users + maps tables (run in Neon SQL editor)
 railway.toml             # Railway deploy config (startCommand = node server/index.js)
 vercel.json              # SPA rewrite rule — routes all paths to index.html
 ```
@@ -80,7 +83,12 @@ vercel.json              # SPA rewrite rule — routes all paths to index.html
 - Hook files: camelCase with `use` prefix (e.g., `useMindMap.ts`)
 
 ### State Management
-- **Mind map data** → `useMindMapStore` (nodes, edges, maps list, layoutVersion)
+- **Mind map data** → `useMindMapStore` (nodes, edges, maps list `MapMeta[]`, layoutVersion)
+  - **No `persist` middleware** — data lives in Neon DB, not localStorage
+  - `maps` is `MapMeta[]` (id, title, timestamps, rootColor) — no nodes/edges in the list
+  - `loadMap({ id, nodes, edges })` — called by MapPage after fetching the full map from the API
+  - `setMapList(maps)` — called by Dashboard after fetching the list
+  - `addMapToList`, `updateMapMeta`, `removeMap` — called after API mutations
 - **UI state** → `useUIStore` (theme, panel visibility, focus mode, presentation mode, selected nodes)
 - **Settings** → `useSettingsStore` (provider, model, apiKey — persisted to localStorage)
 - Never put UI state in mindmapStore or vice versa
@@ -230,12 +238,56 @@ VITE_AZURE_TENANT_ID=common
 - `req.user` is set to `{ id, email, name, tenantId }` on every authenticated request
 - The `/api/health` endpoint is intentionally public (no auth required)
 
+## Database (Phase 2 — Neon DB)
+
+### Setup
+1. Create a project at [neon.tech](https://neon.tech)
+2. Copy the **Connection string** from Project → Connection Details
+3. Open **SQL Editor** and run the contents of `server/schema.sql` once
+4. Set `DATABASE_URL` in Railway env vars (production) and `.env` (local)
+
+### Schema
+```sql
+users (id PK, email, name, tenant_id, created_at)
+maps  (id PK, owner_id FK→users.id, title, data JSONB, created_at, updated_at)
+```
+- `data` column stores `{ nodes: MindMapNode[], edges: MindMapEdge[] }` as JSONB
+- `owner_id` is the user's Azure `localAccountId` (matches `req.user.id`)
+- `users` is upserted on Dashboard mount via `POST /api/users/me`
+
+### API Endpoints (all protected by `authMiddleware`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/users/me` | Upsert current user (called once on Dashboard) |
+| GET | `/api/maps` | List user's maps (metadata — no nodes/edges) |
+| POST | `/api/maps` | Create new map (client sends id + title + data) |
+| GET | `/api/maps/:id` | Get full map (nodes + edges) |
+| PUT | `/api/maps/:id` | Update title and/or data |
+| DELETE | `/api/maps/:id` | Delete map |
+
+### Map service (`src/services/mapService.ts`)
+All map API calls go through this service — same auth pattern as `aiService.ts`.
+- `upsertUser()` — called once on Dashboard mount
+- `listMaps()` → `MapMeta[]`
+- `createMap(id, title, nodes, edges)` — client generates UUID
+- `fetchMap(id)` → `FullMap` (with nodes/edges)
+- `saveMap(id, nodes, edges)` — silent on network errors (auto-save)
+- `renameMap(id, title)`
+- `deleteMap(id)`
+
+### Auto-save
+`MapPage` watches `nodes` + `edges` via `useEffect` and calls `saveMap()` after a 2-second debounce. The first render is skipped (load, not edit). Network errors are silently swallowed so they never interrupt the user.
+
+### Local dev without a database
+If `DATABASE_URL` is not set in `.env`, the server starts normally but map endpoints return 503. Set `SKIP_AUTH=true` and leave `DATABASE_URL` unset to run without any cloud services.
+
 ## Deployment
 
 | Service | Purpose | Config |
 |---------|---------|--------|
-| Railway | Express backend (AI proxy) | `railway.toml` sets `startCommand = node server/index.js` |
+| Railway | Express backend (AI proxy + map CRUD) | `railway.toml` sets `startCommand = node server/index.js` |
 | Vercel | React frontend (static) | Set `VITE_API_URL` env var to Railway backend URL |
+| Neon DB | Serverless Postgres | Set `DATABASE_URL` in Railway env vars |
 
 ### Environment Variables
 
@@ -290,3 +342,7 @@ When asked to add a new feature:
 - Do not store sensitive data (API keys) in frontend state or localStorage beyond what `settingsStore` (persisted Zustand) already handles
 - Do not add dependencies without checking if an existing one covers the use case
 - Do not wrap `AnimatePresence` children in a React fragment — always use a single keyed `motion.*` element as the direct child
+- Do not add `persist` middleware back to `mindmapStore` — map data is stored in Neon DB, not localStorage
+- Do not call map API endpoints directly from components — always use `src/services/mapService.ts`
+- Do not store `nodes`/`edges` in the `MapMeta` list — the list is metadata only; full data is fetched on map open
+- Do not run schema migrations manually — add DDL changes to `server/schema.sql` and re-run from Neon SQL editor

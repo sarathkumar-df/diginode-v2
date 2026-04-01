@@ -17,7 +17,9 @@ import { useMindMapStore } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
 import { MindMapNode } from './MindMapNode'
 import { CustomEdge } from './CustomEdge'
+import { LiveCursors } from './LiveCursors'
 import { useKeyboard } from '@/hooks/useKeyboard'
+import { useUpdateMyPresence } from '@/liveblocks.config'
 
 const nodeTypes: NodeTypes = {
   mindmap: MindMapNode,
@@ -27,7 +29,7 @@ const edgeTypes: EdgeTypes = {
   custom: CustomEdge,
 }
 
-export function MindMapCanvas() {
+export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
   const {
     nodes,
     edges,
@@ -51,6 +53,7 @@ export function MindMapCanvas() {
   } = useUIStore()
 
   const { screenToFlowPosition, fitView } = useReactFlow()
+  const updateMyPresence = useUpdateMyPresence()
 
   // Fit view to current presentation node when step changes
   useEffect(() => {
@@ -88,6 +91,19 @@ export function MindMapCanvas() {
   const connectSourceId = useRef<string | null>(null)
 
   useKeyboard()
+
+  // Broadcast cursor position to other users
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+      updateMyPresence({ cursor: pos })
+    },
+    [screenToFlowPosition, updateMyPresence]
+  )
+
+  const handleMouseLeave = useCallback(() => {
+    updateMyPresence({ cursor: null })
+  }, [updateMyPresence])
 
   const handlePaneClick = useCallback(() => {
     clearSelection()
@@ -146,8 +162,30 @@ export function MindMapCanvas() {
     [screenToFlowPosition, addNodeAtPosition, setSelectedNodes, setInspectorNode]
   )
 
+  const isEmptyMap = nodes.length <= 1
+
   return (
-    <div className="w-full h-full" style={{ background: 'var(--canvas-bg)' }}>
+    <div
+      className="w-full h-full"
+      style={{ background: 'var(--canvas-bg)' }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
+      {/* Other users' cursors, rendered in flow-space coordinates */}
+      <LiveCursors />
+      {isEmptyMap && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+          <div className="text-center select-none" style={{ marginTop: 80 }}>
+            <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+              Click the root node to select it
+            </p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>
+              Then press <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mx-0.5" style={{ background: 'var(--panel-border)' }}>Tab</kbd> to add a child node
+              or drag from a handle to create connected nodes
+            </p>
+          </div>
+        </div>
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -177,6 +215,9 @@ export function MindMapCanvas() {
           opacity: 0.65,
           strokeLinecap: 'round',
         }}
+        nodesDraggable={!readOnly}
+        nodesConnectable={!readOnly}
+        elementsSelectable={!readOnly}
         proOptions={{ hideAttribution: true }}
         deleteKeyCode={null}
       >
