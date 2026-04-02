@@ -24,7 +24,6 @@ import { useCurrentUser } from '@/auth/AuthProvider'
 import { MapPermission } from '@/types'
 import { Loader2, Eye } from 'lucide-react'
 
-// Auto-save debounce in ms — saves 2s after the last change
 const SAVE_DEBOUNCE = 2000
 
 function MapPageInner() {
@@ -33,6 +32,7 @@ function MapPageInner() {
   const { theme } = useUIStore()
   const { nodes, edges, activeMapId, activeMap, loadMap, setMapList, maps } = useMindMapStore()
   const currentUser = useCurrentUser()
+
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
@@ -40,17 +40,15 @@ function MapPageInner() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [permission, setPermission] = useState<MapPermission>('edit')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
-  // Track whether changes have been made since last save to avoid saving on load
   const isDirtyRef = useRef(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
-  // Sync theme class
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
   }, [theme])
 
-  // Load map from API on mount
   useEffect(() => {
     if (!mapId) { navigate('/dashboard', { replace: true }); return }
     let cancelled = false
@@ -84,30 +82,17 @@ function MapPageInner() {
     return () => { cancelled = true }
   }, [mapId])
 
-  // Auto-save: debounce writes after node/edge changes
   useEffect(() => {
-    // Skip the initial render before the map is loaded
-    if (!isDirtyRef.current) {
-      isDirtyRef.current = true
-      return
-    }
-    if (!activeMapId) return
-
-    if (permission !== 'edit') return
+    if (!isDirtyRef.current) { isDirtyRef.current = true; return }
+    if (!activeMapId || permission !== 'edit') return
     clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => {
-      saveMap(activeMapId, nodes, edges)
-    }, SAVE_DEBOUNCE)
-
+    saveTimerRef.current = setTimeout(() => saveMap(activeMapId, nodes, edges), SAVE_DEBOUNCE)
     return () => clearTimeout(saveTimerRef.current)
   }, [nodes, edges])
 
   if (loading) {
     return (
-      <div
-        className="w-screen h-screen flex items-center justify-center"
-        style={{ background: 'var(--canvas-bg)' }}
-      >
+      <div className="w-screen h-screen flex items-center justify-center" style={{ background: 'var(--canvas-bg)' }}>
         <Loader2 size={28} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
       </div>
     )
@@ -115,10 +100,7 @@ function MapPageInner() {
 
   if (error) {
     return (
-      <div
-        className="w-screen h-screen flex items-center justify-center"
-        style={{ background: 'var(--canvas-bg)' }}
-      >
+      <div className="w-screen h-screen flex items-center justify-center" style={{ background: 'var(--canvas-bg)' }}>
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{error}</p>
       </div>
     )
@@ -140,47 +122,68 @@ function MapPageInner() {
         edges: new LiveList(edges.map((e) => new LiveObject({ ...e } as any))),
       } as any}
     >
-      <div className="w-screen h-screen overflow-hidden relative" style={{ background: 'var(--canvas-bg)' }}>
-        <MindMapCanvas readOnly={isViewOnly} />
-        {/* Sync bridge: keeps Zustand ↔ Liveblocks in sync */}
-        {activeMapId && <LiveblocksSync mapId={activeMapId} />}
-        <TopToolbar
-          onOpenGenerateModal={() => setGenerateModalOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenShare={() => setShareOpen(true)}
-          onOpenHistory={() => setHistoryOpen(true)}
-          readOnly={isViewOnly}
+      {/* Root: full screen flex row */}
+      <div className="flex w-screen h-screen overflow-hidden" style={{ background: 'var(--canvas-bg)' }}>
+
+        {/* ── Left sidebar ── */}
+        <LeftSidebar
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed((c) => !c)}
         />
-        {isViewOnly && (
-          <div
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium shadow-lg"
-            style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)', border: '1px solid', color: 'var(--text-secondary)' }}
-          >
-            <Eye size={13} />
-            View only — you can explore but not edit this map
-          </div>
-        )}
-        <FloatingToolbar />
-        <LeftSidebar />
-        <RightSidebar />
-        <SearchPanel />
-        <FocusModeBar />
-        <GenerateMapModal open={generateModalOpen} onClose={() => setGenerateModalOpen(false)} />
-        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-        <ShareModal
-          open={shareOpen}
-          onClose={() => setShareOpen(false)}
-          mapId={activeMapId ?? ''}
-          mapTitle={activeMap()?.title ?? ''}
-        />
-        {historyOpen && activeMapId && (
-          <VersionHistoryPanel
-            mapId={activeMapId}
-            permission={permission}
-            onClose={() => setHistoryOpen(false)}
+
+        {/* ── Main column: header + canvas ── */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+
+          {/* Header toolbar */}
+          <TopToolbar
+            onOpenGenerateModal={() => setGenerateModalOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenShare={() => setShareOpen(true)}
+            onOpenHistory={() => setHistoryOpen(true)}
+            readOnly={isViewOnly}
           />
-        )}
-        <PresentationMode />
+
+          {/* Canvas area — relative so overlays position correctly inside it */}
+          <div className="flex-1 relative overflow-hidden">
+            <MindMapCanvas readOnly={isViewOnly} />
+            {activeMapId && <LiveblocksSync mapId={activeMapId} />}
+
+            {/* View-only badge */}
+            {isViewOnly && (
+              <div
+                className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium shadow-lg pointer-events-none"
+                style={{ background: 'var(--panel-bg)', border: '1px solid var(--panel-border)', color: 'var(--text-secondary)' }}
+              >
+                <Eye size={13} />
+                View only — you can explore but not edit this map
+              </div>
+            )}
+
+            {/* Overlays that live inside the canvas area */}
+            <FloatingToolbar />
+            <RightSidebar />
+            <SearchPanel />
+            <FocusModeBar />
+            <PresentationMode />
+
+            {/* Modals / panels */}
+            <GenerateMapModal open={generateModalOpen} onClose={() => setGenerateModalOpen(false)} />
+            <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+            <ShareModal
+              open={shareOpen}
+              onClose={() => setShareOpen(false)}
+              mapId={activeMapId ?? ''}
+              mapTitle={activeMap()?.title ?? ''}
+            />
+            {historyOpen && activeMapId && (
+              <VersionHistoryPanel
+                mapId={activeMapId}
+                permission={permission}
+                onClose={() => setHistoryOpen(false)}
+              />
+            )}
+          </div>
+        </div>
       </div>
     </RoomProvider>
   )
