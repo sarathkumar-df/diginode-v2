@@ -4,10 +4,10 @@
  */
 import { useState, useEffect } from 'react'
 import { History, RotateCcw, X, Loader2, Clock, AlertCircle } from 'lucide-react'
-import { MapVersion } from '@/types'
+import { MapVersion, MapPermission } from '@/types'
 import { listVersions, restoreVersion } from '@/services/versionService'
 import { useMindMapStore } from '@/store/mindmapStore'
-import { MapPermission } from '@/types'
+import { useConfirm } from '@/components/UI/ConfirmModal'
 
 interface Props {
   mapId: string
@@ -34,6 +34,7 @@ function formatVersionDate(iso: string): { date: string; time: string } {
 
 export function VersionHistoryPanel({ mapId, permission, onClose }: Props) {
   const { loadMap } = useMindMapStore()
+  const confirm = useConfirm()
   const [versions, setVersions] = useState<MapVersion[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -48,7 +49,12 @@ export function VersionHistoryPanel({ mapId, permission, onClose }: Props) {
   }, [mapId])
 
   const handleRestore = async (version: MapVersion) => {
-    if (!confirm('Restore this version? Your current map will be saved as a new version first.')) return
+    const ok = await confirm({
+      title: 'Restore this version?',
+      description: 'Your current map will be saved as a new version first, so you can always undo this.',
+      confirmLabel: 'Restore',
+    })
+    if (!ok) return
     setRestoringId(version.id)
     setError('')
     try {

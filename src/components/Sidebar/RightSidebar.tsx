@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Sparkles, FileText, Link2, PenLine, Wand2,
+  Sparkles, FileText, PenLine, Wand2,
   RefreshCw, X, Send, StopCircle, Plus, Check, CheckCheck,
   ChevronRight,
 } from 'lucide-react'
@@ -271,19 +271,6 @@ export function RightSidebar() {
                   </p>
                   <SecondaryButton onClick={() => { summarize(); setTab('chat') }} loading={isBusy}>
                     Summarize
-                  </SecondaryButton>
-                </Section>
-
-                <Divider />
-
-                {/* Find Connections */}
-                <Section>
-                  <SectionHeader icon={Link2} title="Find Connections" />
-                  <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-                    Discover non-obvious links between nodes
-                  </p>
-                  <SecondaryButton onClick={discoverConnections} loading={isBusy}>
-                    Analyze
                   </SecondaryButton>
                 </Section>
 

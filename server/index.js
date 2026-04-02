@@ -230,6 +230,24 @@ app.get('/api/maps/:id', authMiddleware, route(async (req, res) => {
   })
 }))
 
+// POST /api/maps/:id/duplicate — clone a map owned by the current user
+app.post('/api/maps/:id/duplicate', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const { rows } = await pool.query(
+    `SELECT title, data FROM maps WHERE id = $1 AND owner_id = $2`,
+    [req.params.id, req.user.id]
+  )
+  if (!rows[0]) return res.status(404).json({ error: 'Map not found' })
+  const { v4: uuidv4 } = await import('uuid')
+  const newId = uuidv4()
+  const newTitle = `Copy of ${rows[0].title}`
+  await pool.query(
+    `INSERT INTO maps (id, owner_id, title, data) VALUES ($1, $2, $3, $4)`,
+    [newId, req.user.id, newTitle, JSON.stringify(rows[0].data)]
+  )
+  res.json({ id: newId, title: newTitle })
+}))
+
 // PUT /api/maps/:id — update title, data, and/or thumbnail (all optional)
 // When data changes, auto-snapshots a version (throttled: max 1 per 5 minutes).
 app.put('/api/maps/:id', authMiddleware, route(async (req, res) => {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ReactFlowProvider } from 'reactflow'
+import { ReactFlowProvider, useReactFlow } from 'reactflow'
 import { LiveList, LiveObject } from '@liveblocks/client'
 import { MindMapCanvas } from '@/components/Canvas/MindMapCanvas'
 import { LiveblocksSync } from '@/components/Canvas/LiveblocksSync'
@@ -33,6 +33,7 @@ function MapPageInner() {
   const { theme } = useUIStore()
   const { nodes, edges, activeMapId, activeMap, loadMap, setMapList, maps } = useMindMapStore()
   const currentUser = useCurrentUser()
+  const { fitView, getViewport, setViewport } = useReactFlow()
 
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -88,7 +89,13 @@ function MapPageInner() {
     if (!activeMapId || permission !== 'edit') return
     clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
+      // Zoom to fit all nodes, capture thumbnail, then restore viewport
+      const prevViewport = getViewport()
+      fitView({ duration: 0, padding: 0.15 })
+      // Wait two frames for React Flow to apply the new viewport
+      await new Promise<void>((r) => { requestAnimationFrame(() => { requestAnimationFrame(() => r()) }) })
       const thumb = await captureThumb()
+      setViewport(prevViewport, { duration: 0 })
       saveMap(activeMapId, nodes, edges, thumb)
     }, SAVE_DEBOUNCE)
     return () => clearTimeout(saveTimerRef.current)

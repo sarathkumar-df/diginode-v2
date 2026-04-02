@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useCurrentUser } from '@/auth/AuthProvider'
 import { AppSidebar } from '@/components/Layout/AppSidebar'
+import { useConfirm } from '@/components/UI/ConfirmModal'
 import { Team, TeamDetail, TeamMember } from '@/types'
 import {
   listTeams, createTeam, fetchTeam, deleteTeam,
@@ -172,6 +173,7 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
   onClose: () => void
   onDeleted: () => void
 }) {
+  const confirm = useConfirm()
   const [detail, setDetail] = useState<TeamDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [showInvite, setShowInvite] = useState(false)
@@ -182,7 +184,13 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
   }, [teamId])
 
   const handleRemove = async (member: TeamMember) => {
-    if (!confirm(`Remove ${member.name} from the team?`)) return
+    const ok = await confirm({
+      title: `Remove ${member.name}?`,
+      description: 'They will lose access to all shared maps.',
+      confirmLabel: 'Remove',
+      danger: true,
+    })
+    if (!ok) return
     setRemoving(member.id)
     try {
       await removeMember(teamId, member.id)
@@ -193,13 +201,25 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
   }
 
   const handleLeave = async () => {
-    if (!confirm('Leave this team?')) return
+    const ok = await confirm({
+      title: 'Leave this team?',
+      description: 'You will lose access to all maps shared with this team.',
+      confirmLabel: 'Leave',
+      danger: true,
+    })
+    if (!ok) return
     await removeMember(teamId, currentUserId)
     onDeleted()
   }
 
   const handleDelete = async () => {
-    if (!confirm(`Delete "${detail?.name}"? This cannot be undone.`)) return
+    const ok = await confirm({
+      title: `Delete "${detail?.name}"?`,
+      description: 'This will remove the team and all its member access. This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!ok) return
     await deleteTeam(teamId)
     onDeleted()
   }

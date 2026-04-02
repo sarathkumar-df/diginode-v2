@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useMindMapStore, createDefaultMapData } from '@/store/mindmapStore'
 import { createMap, deleteMap, renameMap } from '@/services/mapService'
+import { useConfirm } from '@/components/UI/ConfirmModal'
 import { MapMeta } from '@/types'
 
 interface Props {
@@ -17,6 +18,7 @@ interface Props {
 export function LeftSidebar({ collapsed, onToggle }: Props) {
   const { maps, activeMapId, addMapToList, updateMapMeta, removeMap } = useMindMapStore()
   const navigate = useNavigate()
+  const confirm = useConfirm()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [creating, setCreating] = useState(false)
@@ -43,11 +45,17 @@ export function LeftSidebar({ collapsed, onToggle }: Props) {
 
   const handleDelete = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!confirm('Delete this map? This cannot be undone.')) return
+    const ok = await confirm({
+      title: 'Delete map?',
+      description: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!ok) return
     await deleteMap(id)
     removeMap(id)
     if (activeMapId === id) navigate('/dashboard', { replace: true })
-  }, [activeMapId, removeMap, navigate])
+  }, [activeMapId, removeMap, navigate, confirm])
 
   const startEdit = useCallback((id: string, title: string, e: React.MouseEvent) => {
     e.stopPropagation()

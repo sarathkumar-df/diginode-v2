@@ -2,14 +2,16 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrentUser } from '@/auth/AuthProvider'
 import { useMindMapStore, createDefaultMapData } from '@/store/mindmapStore'
-import { upsertUser, listMaps, createMap, deleteMap } from '@/services/mapService'
+import { upsertUser, listMaps, createMap, deleteMap, duplicateMap } from '@/services/mapService'
 import { listSharedMaps } from '@/services/shareService'
 import { AppSidebar } from '@/components/Layout/AppSidebar'
-import { MapMeta, SharedMapMeta } from '@/types'
+import { ImportModal } from '@/components/UI/ImportModal'
+import { useConfirm } from '@/components/UI/ConfirmModal'
+import { MapMeta, SharedMapMeta, MindMapNode, MindMapEdge } from '@/types'
 import {
   Plus, Map as MapIcon,
   Trash2, Loader2, Share2, Search,
-  MoreHorizontal, Clock, ChevronRight,
+  MoreHorizontal, Clock, ChevronRight, Upload, Copy,
 } from 'lucide-react'
 
 // ── Mini map thumbnail SVG ────────────────────────────────────────────────────
@@ -91,16 +93,24 @@ function relativeTime(iso: string) {
 
 // ── Map card ──────────────────────────────────────────────────────────────────
 
-function MapCard({ map, onDelete }: { map: MapMeta; onDelete: (id: string) => void }) {
+function MapCard({ map, onDelete, onDuplicate }: { map: MapMeta; onDelete: (id: string) => void; onDuplicate: (id: string) => void }) {
   const navigate = useNavigate()
+  const confirm = useConfirm()
   const [deleting, setDeleting] = useState(false)
+  const [duplicating, setDuplicating] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const color = map.rootColor ?? '#6366f1'
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation()
     setMenuOpen(false)
-    if (!confirm(`Delete "${map.title}"? This cannot be undone.`)) return
+    const ok = await confirm({
+      title: `Delete "${map.title}"?`,
+      description: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!ok) return
     setDeleting(true)
     try {
       await deleteMap(map.id)
@@ -110,11 +120,23 @@ function MapCard({ map, onDelete }: { map: MapMeta; onDelete: (id: string) => vo
     }
   }
 
+  const handleDuplicate = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setMenuOpen(false)
+    setDuplicating(true)
+    try {
+      await duplicateMap(map.id)
+      onDuplicate(map.id)
+    } catch {
+      setDuplicating(false)
+    }
+  }
+
   return (
     <div
       className="group relative flex flex-col rounded-2xl border overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-lg"
       style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
-      onClick={() => !deleting && navigate(`/map/${map.id}`)}
+      onClick={() => !deleting && !duplicating && navigate(`/map/${map.id}`)}
       onMouseLeave={() => setMenuOpen(false)}
     >
       {/* Thumbnail */}
@@ -145,10 +167,20 @@ function MapCard({ map, onDelete }: { map: MapMeta; onDelete: (id: string) => vo
           </button>
           {menuOpen && (
             <div
-              className="absolute top-full right-0 mt-1 w-36 rounded-xl border overflow-hidden z-20 shadow-xl"
+              className="absolute top-full right-0 mt-1 w-40 rounded-xl border overflow-hidden z-20 shadow-xl"
               style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
               onClick={(e) => e.stopPropagation()}
             >
+              <button
+                onClick={handleDuplicate}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium transition-colors"
+                style={{ color: 'var(--text-primary)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--canvas-bg)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              >
+                <Copy size={12} /> Duplicate
+              </button>
+              <div style={{ height: 1, background: 'var(--panel-border)' }} />
               <button
                 onClick={handleDelete}
                 className="w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
@@ -159,7 +191,7 @@ function MapCard({ map, onDelete }: { map: MapMeta; onDelete: (id: string) => vo
             </div>
           )}
         </div>
-        {deleting && (
+        {(deleting || duplicating) && (
           <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.7)' }}>
             <Loader2 size={20} className="animate-spin" style={{ color: 'var(--brand)' }} />
           </div>
@@ -296,6 +328,7 @@ export function Dashboard() {
   const [sharedMaps, setSharedMaps] = useState<SharedMapMeta[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
 
@@ -343,6 +376,30 @@ export function Dashboard() {
   const handleDelete = (id: string) => {
     setMaps((prev) => prev.filter((m) => m.id !== id))
     removeMap(id)
+  }
+
+  const handleDuplicate = async (_id: string) => {
+    // Refresh the map list so the duplicate appears
+    try {
+      const myMaps = await listMaps()
+      setMaps(myMaps)
+      setMapList(myMaps)
+    } catch { /* non-fatal */ }
+  }
+
+  const handleImport = async ({ title, nodes, edges }: { title: string; nodes: MindMapNode[]; edges: MindMapEdge[] }) => {
+    const { v4: uuidv4 } = await import('uuid')
+    const id = uuidv4()
+    await createMap(id, title, nodes, edges)
+    const meta: MapMeta = {
+      id, title,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      rootColor: (nodes[0]?.data?.color) ?? '#6366f1',
+    }
+    addMapToList(meta)
+    setMaps((prev) => [meta, ...prev])
+    navigate(`/map/${id}`)
   }
 
   const sortedMaps = useMemo(
@@ -395,6 +452,15 @@ export function Dashboard() {
               />
             </div>
             <button
+              onClick={() => setImportOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors border"
+              style={{ borderColor: 'var(--panel-border)', color: 'var(--text-secondary)', background: 'var(--panel-bg)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--canvas-bg)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--panel-bg)' }}
+            >
+              <Upload size={14} /> Import
+            </button>
+            <button
               onClick={handleNewMap}
               disabled={creating}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60 shadow-sm"
@@ -425,7 +491,7 @@ export function Dashboard() {
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                       {filteredMaps.map((map) => (
-                        <MapCard key={map.id} map={map} onDelete={handleDelete} />
+                        <MapCard key={map.id} map={map} onDelete={handleDelete} onDuplicate={handleDuplicate} />
                       ))}
                     </div>
                   )}
@@ -449,6 +515,12 @@ export function Dashboard() {
           )}
         </div>
       </div>
+
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImport={handleImport}
+      />
     </div>
   )
 }

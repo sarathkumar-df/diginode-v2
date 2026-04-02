@@ -106,6 +106,14 @@ export async function renameMap(id: string, title: string): Promise<void> {
   })
 }
 
+// Duplicate a map — server copies data and returns new id + title.
+export async function duplicateMap(id: string): Promise<{ id: string; title: string }> {
+  const headers = await authHeaders()
+  const res = await fetch(`${API_BASE}/maps/${id}/duplicate`, { method: 'POST', headers })
+  if (!res.ok) throw new Error('Failed to duplicate map')
+  return res.json()
+}
+
 // Delete a map permanently.
 export async function deleteMap(id: string): Promise<void> {
   const headers = await authHeaders()

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useIsAuthenticated } from '@azure/msal-react'
 import { Layers, Loader2 } from 'lucide-react'
 import { loginRequest } from '@/auth/msalConfig'
@@ -8,13 +8,17 @@ import { msalInstance } from '@/auth/AuthProvider'
 export function SignInPage() {
   const isAuthenticated = useIsAuthenticated()
   const navigate = useNavigate()
+  const location = useLocation()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // If already signed in, send to dashboard
+  // If already signed in, go back to where the user came from (or dashboard)
   useEffect(() => {
-    if (isAuthenticated) navigate('/dashboard', { replace: true })
-  }, [isAuthenticated, navigate])
+    if (isAuthenticated) {
+      const from = (location.state as { from?: string })?.from ?? '/dashboard'
+      navigate(from, { replace: true })
+    }
+  }, [isAuthenticated, navigate, location.state])
 
   const handleSignIn = async () => {
     if (loading) return
