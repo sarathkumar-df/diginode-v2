@@ -13,6 +13,7 @@ import { FocusModeBar } from '@/components/UI/FocusMode'
 import { GenerateMapModal } from '@/components/UI/GenerateMapModal'
 import { SettingsModal } from '@/components/UI/SettingsModal'
 import { ShareModal } from '@/components/UI/ShareModal'
+import { VersionHistoryPanel } from '@/components/UI/VersionHistoryPanel'
 import { PresentationMode } from '@/components/UI/PresentationMode'
 import { useUIStore } from '@/store/uiStore'
 import { useMindMapStore } from '@/store/mindmapStore'
@@ -35,6 +36,7 @@ function MapPageInner() {
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [permission, setPermission] = useState<MapPermission>('edit')
@@ -146,6 +148,7 @@ function MapPageInner() {
           onOpenGenerateModal={() => setGenerateModalOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenShare={() => setShareOpen(true)}
+          onOpenHistory={() => setHistoryOpen(true)}
           readOnly={isViewOnly}
         />
         {isViewOnly && (
@@ -170,6 +173,13 @@ function MapPageInner() {
           mapId={activeMapId ?? ''}
           mapTitle={activeMap()?.title ?? ''}
         />
+        {historyOpen && activeMapId && (
+          <VersionHistoryPanel
+            mapId={activeMapId}
+            permission={permission}
+            onClose={() => setHistoryOpen(false)}
+          />
+        )}
         <PresentationMode />
       </div>
     </RoomProvider>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Plus, Download, Search, Sun, Moon, Image,
   Sparkles, Layers, Map as MapIcon, Wand2, Settings, Workflow,
-  MonitorPlay, FileJson, FileText, ArrowLeft, Check, Share2,
+  MonitorPlay, FileJson, FileText, ArrowLeft, Check, Share2, History,
 } from 'lucide-react'
 import { useMindMapStore, createDefaultMapData } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
@@ -172,10 +172,11 @@ interface Props {
   onOpenGenerateModal: () => void
   onOpenSettings: () => void
   onOpenShare: () => void
+  onOpenHistory: () => void
   readOnly?: boolean
 }
 
-export function TopToolbar({ onOpenGenerateModal, onOpenSettings, onOpenShare, readOnly = false }: Props) {
+export function TopToolbar({ onOpenGenerateModal, onOpenSettings, onOpenShare, onOpenHistory, readOnly = false }: Props) {
   const { activeMap, nodes, edges, addMapToList, activeMapId, updateMapMeta } = useMindMapStore()
   const navigate = useNavigate()
   const [editingTitle, setEditingTitle] = useState(false)
@@ -390,6 +391,12 @@ export function TopToolbar({ onOpenGenerateModal, onOpenSettings, onOpenShare, r
         label="Theme"
         tooltip={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
         onClick={toggleTheme}
+      />
+      <ToolBtn
+        icon={History}
+        label="History"
+        tooltip="Browse and restore previous versions"
+        onClick={onOpenHistory}
       />
       <ToolBtn
         icon={Share2}

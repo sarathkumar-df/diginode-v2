@@ -61,3 +61,18 @@ CREATE TABLE IF NOT EXISTS map_shares (
 );
 
 CREATE INDEX IF NOT EXISTS map_shares_team ON map_shares (team_id);
+
+-- ── Phase 5: Version History ──────────────────────────────────────────────────
+-- Snapshots are created automatically on save, throttled to one per 5 minutes.
+-- Max 30 versions per map; oldest are pruned on insert.
+
+CREATE TABLE IF NOT EXISTS map_versions (
+  id          TEXT        PRIMARY KEY,           -- UUID
+  map_id      TEXT        NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
+  node_count  INT         NOT NULL DEFAULT 0,
+  edge_count  INT         NOT NULL DEFAULT 0,
+  data        JSONB       NOT NULL,              -- { nodes, edges }
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS map_versions_map ON map_versions (map_id, created_at DESC);

@@ -230,6 +230,7 @@ app.get('/api/maps/:id', authMiddleware, route(async (req, res) => {
 }))
 
 // PUT /api/maps/:id — update title and/or data (both optional)
+// When data changes, auto-snapshots a version (throttled: max 1 per 5 minutes).
 app.put('/api/maps/:id', authMiddleware, route(async (req, res) => {
   if (!requireDb(res)) return
   const { title, data } = req.body
@@ -250,7 +251,113 @@ app.put('/api/maps/:id', authMiddleware, route(async (req, res) => {
 
   const { rowCount } = await pool.query(query, params)
   if (!rowCount) return res.status(404).json({ error: 'Map not found' })
+
+  // Auto-snapshot when data changes (throttled: 1 version per 5 minutes max)
+  if (data !== undefined) {
+    const { v4: uuidv4 } = await import('uuid')
+    const mapId = req.params.id
+    const nodes = data.nodes ?? []
+    const edges = data.edges ?? []
+
+    // Check time of last version
+    const { rows: recent } = await pool.query(
+      `SELECT created_at FROM map_versions WHERE map_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [mapId]
+    )
+    const lastVersionAge = recent[0]
+      ? Date.now() - new Date(recent[0].created_at).getTime()
+      : Infinity
+
+    if (lastVersionAge > 5 * 60 * 1000) {
+      const versionId = uuidv4()
+      await pool.query(
+        `INSERT INTO map_versions (id, map_id, node_count, edge_count, data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [versionId, mapId, nodes.length, edges.length, JSON.stringify({ nodes, edges })]
+      )
+      // Prune: keep only the 30 most recent versions
+      await pool.query(
+        `DELETE FROM map_versions WHERE map_id = $1 AND id NOT IN (
+           SELECT id FROM map_versions WHERE map_id = $1
+           ORDER BY created_at DESC LIMIT 30
+         )`,
+        [mapId]
+      )
+    }
+  }
+
   res.json({ ok: true })
+}))
+
+// GET /api/maps/:id/versions — list version history (metadata only, newest first)
+app.get('/api/maps/:id/versions', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const mapId = req.params.id
+
+  // Verify access (owner or shared)
+  const permission = await getUserMapPermission(mapId, req.user.id)
+  const { rows: owned } = await pool.query(
+    `SELECT id FROM maps WHERE id = $1 AND owner_id = $2`, [mapId, req.user.id]
+  )
+  if (!owned[0] && !permission) return res.status(403).json({ error: 'No access' })
+
+  const { rows } = await pool.query(
+    `SELECT id, map_id, node_count, edge_count, created_at
+     FROM map_versions WHERE map_id = $1 ORDER BY created_at DESC`,
+    [mapId]
+  )
+  res.json(rows.map((r) => ({
+    id: r.id,
+    mapId: r.map_id,
+    nodeCount: r.node_count,
+    edgeCount: r.edge_count,
+    createdAt: r.created_at,
+  })))
+}))
+
+// POST /api/maps/:id/versions/:versionId/restore — restore a version (owner only)
+app.post('/api/maps/:id/versions/:versionId/restore', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const { id: mapId, versionId } = req.params
+
+  // Only the owner can restore
+  const { rows: owned } = await pool.query(
+    `SELECT id FROM maps WHERE id = $1 AND owner_id = $2`, [mapId, req.user.id]
+  )
+  if (!owned[0]) return res.status(403).json({ error: 'Only the map owner can restore versions' })
+
+  // Fetch the version data
+  const { rows: ver } = await pool.query(
+    `SELECT data, node_count, edge_count FROM map_versions WHERE id = $1 AND map_id = $2`,
+    [versionId, mapId]
+  )
+  if (!ver[0]) return res.status(404).json({ error: 'Version not found' })
+
+  // Snapshot current state before overwriting (so restore is itself undoable)
+  const { rows: current } = await pool.query(`SELECT data FROM maps WHERE id = $1`, [mapId])
+  if (current[0]) {
+    const { v4: uuidv4 } = await import('uuid')
+    const curData = current[0].data
+    const curNodes = curData.nodes ?? []
+    const curEdges = curData.edges ?? []
+    await pool.query(
+      `INSERT INTO map_versions (id, map_id, node_count, edge_count, data)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [uuidv4(), mapId, curNodes.length, curEdges.length, JSON.stringify({ nodes: curNodes, edges: curEdges })]
+    )
+  }
+
+  // Apply the restored version
+  await pool.query(
+    `UPDATE maps SET data = $1, updated_at = NOW() WHERE id = $2`,
+    [JSON.stringify(ver[0].data), mapId]
+  )
+
+  const restoredData = ver[0].data
+  res.json({
+    nodes: restoredData.nodes ?? [],
+    edges: restoredData.edges ?? [],
+  })
 }))
 
 // DELETE /api/maps/:id — delete a map

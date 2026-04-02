@@ -168,6 +168,21 @@ export interface SharedMapMeta extends MapMeta {
   ownerName: string
 }
 
+// ─── Version History ─────────────────────────────────────────────────────────
+
+export interface MapVersion {
+  id: string
+  mapId: string
+  nodeCount: number
+  edgeCount: number
+  createdAt: string
+}
+
+export interface MapVersionData extends MapVersion {
+  nodes: MindMapNode[]
+  edges: MindMapEdge[]
+}
+
 // ─── UI State ────────────────────────────────────────────────────────────────
 
 export type Theme = 'light' | 'dark'
