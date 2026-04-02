@@ -6,51 +6,53 @@
 
 :root {
   /* Canvas */
-  --canvas-bg: #FEFCF3;
-  --canvas-dot: #D4C9A8;
+  --canvas-bg: #F3F4F8;
+  --canvas-dot: #C7C9DC;
 
   /* Panels */
   --panel-bg: #FFFFFF;
-  --panel-border: #E5E7EB;
-  --panel-shadow: 0 8px 32px rgba(0,0,0,0.10);
+  --panel-border: #E4E6EE;
+  --panel-shadow: 0 8px 32px rgba(99,102,241,0.08), 0 2px 8px rgba(0,0,0,0.06);
 
   /* Text */
-  --text-primary: #1F2937;
-  --text-secondary: #6B7280;
-  --text-muted: #9CA3AF;
+  --text-primary: #1A1D2E;
+  --text-secondary: #5C6070;
+  --text-muted: #9094A8;
 
   /* Nodes */
   --node-bg: #FFFFFF;
-  --node-shadow: 0 4px 20px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06);
-  --node-shadow-hover: 0 8px 28px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.08);
+  --node-shadow: 0 4px 20px rgba(99,102,241,0.10), 0 1px 4px rgba(0,0,0,0.06);
+  --node-shadow-hover: 0 8px 28px rgba(99,102,241,0.16), 0 2px 8px rgba(0,0,0,0.08);
 
   /* Toolbar */
-  --toolbar-bg: rgba(255, 255, 255, 0.92);
-  --toolbar-border: rgba(229, 231, 235, 0.8);
+  --toolbar-bg: rgba(255, 255, 255, 0.96);
+  --toolbar-border: rgba(228, 230, 238, 0.9);
 
   /* Brand */
   --brand: #6366f1;
-  --brand-light: #e0e7ff;
+  --brand-light: #eef0ff;
 }
 
 .dark {
-  --canvas-bg: #1A1B2E;
-  --canvas-dot: #2D2E4A;
+  --canvas-bg: #13141F;
+  --canvas-dot: #22243A;
 
-  --panel-bg: #252640;
-  --panel-border: #374151;
-  --panel-shadow: 0 8px 32px rgba(0,0,0,0.40);
+  --panel-bg: #1C1E30;
+  --panel-border: #2C2E45;
+  --panel-shadow: 0 8px 32px rgba(0,0,0,0.50);
 
-  --text-primary: #F9FAFB;
-  --text-secondary: #9CA3AF;
-  --text-muted: #6B7280;
+  --text-primary: #F0F1FA;
+  --text-secondary: #8B8FA8;
+  --text-muted: #5C6080;
 
-  --node-bg: #2D2E4A;
-  --node-shadow: 0 4px 20px rgba(0,0,0,0.35), 0 1px 4px rgba(0,0,0,0.20);
-  --node-shadow-hover: 0 8px 28px rgba(0,0,0,0.50), 0 2px 8px rgba(0,0,0,0.30);
+  --node-bg: #232538;
+  --node-shadow: 0 4px 20px rgba(0,0,0,0.40), 0 1px 4px rgba(0,0,0,0.25);
+  --node-shadow-hover: 0 8px 28px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35);
 
-  --toolbar-bg: rgba(37, 38, 64, 0.95);
-  --toolbar-border: rgba(55, 65, 81, 0.8);
+  --toolbar-bg: rgba(28, 30, 48, 0.97);
+  --toolbar-border: rgba(44, 46, 69, 0.9);
+
+  --brand-light: #2a2c4a;
 }
 
 /* ─── Base ───────────────────────────────────────────────────────────────── */

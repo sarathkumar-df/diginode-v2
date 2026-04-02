@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMsal } from '@azure/msal-react'
 import { useCurrentUser } from '@/auth/AuthProvider'
 import { useMindMapStore, createDefaultMapData } from '@/store/mindmapStore'
 import { upsertUser, listMaps, createMap, deleteMap } from '@/services/mapService'
 import { listSharedMaps } from '@/services/shareService'
+import { AppSidebar } from '@/components/Layout/AppSidebar'
 import { MapMeta, SharedMapMeta } from '@/types'
 import {
-  Plus, Layers, Map as MapIcon, LogOut,
-  Users, Trash2, Loader2, Share2, Search,
+  Plus, Map as MapIcon,
+  Trash2, Loader2, Share2, Search,
   MoreHorizontal, Clock, ChevronRight,
 } from 'lucide-react'
 
@@ -218,75 +218,6 @@ function SharedMapCard({ map }: { map: SharedMapMeta }) {
   )
 }
 
-// ── Sidebar ───────────────────────────────────────────────────────────────────
-
-function Sidebar({ activeTab }: { activeTab: 'maps' | 'teams' }) {
-  const { instance } = useMsal()
-  const user = useCurrentUser()
-  const navigate = useNavigate()
-
-  return (
-    <aside
-      className="flex flex-col flex-shrink-0 border-r h-full"
-      style={{ width: 220, background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
-    >
-      {/* Brand */}
-      <div className="flex items-center gap-2.5 px-5 py-5 flex-shrink-0">
-        <div className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center shadow-sm">
-          <Layers size={14} color="white" />
-        </div>
-        <span className="font-bold text-sm tracking-tight" style={{ color: 'var(--text-primary)' }}>DigiNode</span>
-      </div>
-
-      {/* Nav */}
-      <nav className="flex flex-col gap-0.5 px-3 flex-1">
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors text-left"
-          style={{
-            background: activeTab === 'maps' ? 'var(--brand-light)' : 'transparent',
-            color: activeTab === 'maps' ? 'var(--brand)' : 'var(--text-secondary)',
-          }}
-        >
-          <MapIcon size={15} /> My Maps
-        </button>
-        <button
-          onClick={() => navigate('/teams')}
-          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-colors text-left"
-          style={{
-            background: activeTab === 'teams' ? 'var(--brand-light)' : 'transparent',
-            color: activeTab === 'teams' ? 'var(--brand)' : 'var(--text-secondary)',
-          }}
-        >
-          <Users size={15} /> Teams
-        </button>
-      </nav>
-
-      {/* User */}
-      <div
-        className="flex items-center gap-2.5 px-4 py-4 mx-3 mb-3 rounded-2xl flex-shrink-0"
-        style={{ background: 'var(--canvas-bg)' }}
-      >
-        <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-          {user?.name?.charAt(0).toUpperCase() ?? '?'}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{user?.name?.split(' ')[0]}</p>
-          <p className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>{user?.email}</p>
-        </div>
-        <button
-          onClick={() => instance.logoutPopup()}
-          title="Sign out"
-          className="w-6 h-6 rounded-lg flex items-center justify-center transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 flex-shrink-0"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          <LogOut size={12} />
-        </button>
-      </div>
-    </aside>
-  )
-}
-
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 function EmptyState({ onNew, creating }: { onNew: () => void; creating: boolean }) {
@@ -413,7 +344,7 @@ export function Dashboard() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--canvas-bg)' }}>
-      <Sidebar activeTab="maps" />
+      <AppSidebar activeTab="maps" />
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">

@@ -1,78 +1,16 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useMsal } from '@azure/msal-react'
 import { useCurrentUser } from '@/auth/AuthProvider'
+import { AppSidebar } from '@/components/Layout/AppSidebar'
 import { Team, TeamDetail, TeamMember } from '@/types'
 import {
   listTeams, createTeam, fetchTeam, deleteTeam,
   removeMember, createInvite,
 } from '@/services/teamService'
 import {
-  Layers, Users, LogOut, Map as MapIcon, Plus, Trash2,
-  ChevronRight, Loader2, Copy, Check, Crown, X, UserMinus,
-  Link,
+  Users, Plus, Trash2, Crown, X, UserMinus,
+  Link, Loader2, Copy, Check, AlertCircle,
 } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
-
-// ── Shared nav (same as Dashboard) ───────────────────────────────────────────
-
-function TopNav() {
-  const { instance } = useMsal()
-  const user = useCurrentUser()
-  const navigate = useNavigate()
-
-  return (
-    <header
-      className="h-14 border-b flex items-center justify-between px-6 flex-shrink-0"
-      style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
-    >
-      <div className="flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center">
-          <Layers size={14} color="white" />
-        </div>
-        <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>DigiNode</span>
-      </div>
-      <nav className="flex items-center gap-1">
-        <NavLink icon={MapIcon} label="My Maps" onClick={() => navigate('/dashboard')} />
-        <NavLink icon={Users} label="Teams" onClick={() => navigate('/teams')} active />
-      </nav>
-      <div className="flex items-center gap-3">
-        <div className="text-right hidden sm:block">
-          <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{user?.name}</p>
-          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{user?.email}</p>
-        </div>
-        <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-semibold">
-          {user?.name?.charAt(0).toUpperCase() ?? '?'}
-        </div>
-        <button
-          onClick={() => instance.logoutPopup()}
-          title="Sign out"
-          className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          <LogOut size={14} />
-        </button>
-      </div>
-    </header>
-  )
-}
-
-function NavLink({ icon: Icon, label, onClick, active }: {
-  icon: React.ElementType; label: string; onClick: () => void; active?: boolean
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-      style={{
-        background: active ? 'var(--brand-light)' : 'transparent',
-        color: active ? 'var(--brand)' : 'var(--text-secondary)',
-      }}
-    >
-      <Icon size={13} />{label}
-    </button>
-  )
-}
 
 // ── Create team modal ─────────────────────────────────────────────────────────
 
@@ -118,7 +56,7 @@ function CreateTeamModal({ onClose, onCreate }: {
         style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-5">
           <h2 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Create a team</h2>
           <button onClick={onClose} style={{ color: 'var(--text-muted)' }}><X size={16} /></button>
         </div>
@@ -135,7 +73,7 @@ function CreateTeamModal({ onClose, onCreate }: {
         <div className="flex gap-2">
           <button
             onClick={onClose}
-            className="flex-1 py-2 rounded-xl border text-sm font-medium"
+            className="flex-1 py-2.5 rounded-xl border text-sm font-medium"
             style={{ borderColor: 'var(--panel-border)', color: 'var(--text-secondary)' }}
           >
             Cancel
@@ -143,11 +81,11 @@ function CreateTeamModal({ onClose, onCreate }: {
           <button
             onClick={handleCreate}
             disabled={saving || !name.trim()}
-            className="flex-1 py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-60"
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 disabled:opacity-60 transition-opacity hover:opacity-90"
             style={{ background: 'var(--brand)', color: 'white' }}
           >
             {saving ? <Loader2 size={13} className="animate-spin" /> : null}
-            Create
+            Create team
           </button>
         </div>
       </div>
@@ -155,26 +93,19 @@ function CreateTeamModal({ onClose, onCreate }: {
   )
 }
 
-// ── Invite link panel ─────────────────────────────────────────────────────────
+// ── Invite link modal ─────────────────────────────────────────────────────────
 
-function InviteLinkPanel({ teamId, onClose }: { teamId: string; onClose: () => void }) {
+function InviteLinkModal({ teamId, onClose }: { teamId: string; onClose: () => void }) {
   const [loading, setLoading] = useState(true)
   const [inviteUrl, setInviteUrl] = useState('')
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    async function generate() {
-      try {
-        const { token } = await createInvite(teamId)
-        setInviteUrl(`${window.location.origin}/invite/${token}`)
-      } catch {
-        setError('Failed to generate invite link.')
-      } finally {
-        setLoading(false)
-      }
-    }
-    generate()
+    createInvite(teamId)
+      .then(({ token }) => setInviteUrl(`${window.location.origin}/invite/${token}`))
+      .catch(() => setError('Failed to generate invite link.'))
+      .finally(() => setLoading(false))
   }, [teamId])
 
   const handleCopy = () => {
@@ -194,7 +125,7 @@ function InviteLinkPanel({ teamId, onClose }: { teamId: string; onClose: () => v
         style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <Link size={15} style={{ color: 'var(--brand)' }} />
             <h2 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Invite link</h2>
@@ -202,7 +133,7 @@ function InviteLinkPanel({ teamId, onClose }: { teamId: string; onClose: () => v
           <button onClick={onClose} style={{ color: 'var(--text-muted)' }}><X size={16} /></button>
         </div>
         <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-          Share this link with anyone you want to invite. It expires in 7 days.
+          Share this link to invite anyone. Expires in 7 days.
         </p>
         {loading ? (
           <div className="flex items-center justify-center py-4">
@@ -220,11 +151,11 @@ function InviteLinkPanel({ teamId, onClose }: { teamId: string; onClose: () => v
             />
             <button
               onClick={handleCopy}
-              className="px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors"
+              className="px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors"
               style={{ background: copied ? '#22c55e' : 'var(--brand)', color: 'white' }}
             >
-              {copied ? <Check size={13} /> : <Copy size={13} />}
-              {copied ? 'Copied!' : 'Copy'}
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
         )}
@@ -233,7 +164,7 @@ function InviteLinkPanel({ teamId, onClose }: { teamId: string; onClose: () => v
   )
 }
 
-// ── Team detail panel ─────────────────────────────────────────────────────────
+// ── Team detail panel (slide-in from right) ───────────────────────────────────
 
 function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
   teamId: string
@@ -275,20 +206,16 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
 
   return (
     <>
-      <div
-        className="fixed inset-0 z-40 flex items-start justify-end"
-        style={{ background: 'rgba(0,0,0,0.3)' }}
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 z-40" style={{ background: 'rgba(0,0,0,0.25)' }} onClick={onClose} />
       <div
         className="fixed top-0 right-0 h-full w-full max-w-sm z-50 flex flex-col border-l"
         style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)', boxShadow: '-8px 0 32px rgba(0,0,0,0.10)' }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0" style={{ borderColor: 'var(--panel-border)' }}>
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'var(--brand-light)' }}>
-              <Users size={15} style={{ color: 'var(--brand)' }} />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'var(--brand-light)' }}>
+              <Users size={16} style={{ color: 'var(--brand)' }} />
             </div>
             <div>
               <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -308,14 +235,13 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
           </div>
         ) : detail ? (
           <>
-            {/* Members list */}
-            <div className="flex-1 overflow-y-auto px-5 py-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>Members</p>
+            <div className="flex-1 overflow-y-auto px-5 py-5">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Members</p>
                 {detail.myRole === 'owner' && (
                   <button
                     onClick={() => setShowInvite(true)}
-                    className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-lg transition-colors"
+                    className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
                     style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
                   >
                     <Link size={11} /> Invite link
@@ -329,7 +255,7 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
                     className="flex items-center gap-3 px-3 py-2.5 rounded-xl group"
                     style={{ background: member.id === currentUserId ? 'var(--brand-light)' : 'transparent' }}
                   >
-                    <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
                       {member.name?.charAt(0).toUpperCase() ?? '?'}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -356,13 +282,11 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
                 ))}
               </div>
             </div>
-
-            {/* Footer actions */}
-            <div className="px-5 py-4 border-t flex flex-col gap-2" style={{ borderColor: 'var(--panel-border)' }}>
+            <div className="px-5 py-4 border-t flex-shrink-0" style={{ borderColor: 'var(--panel-border)' }}>
               {detail.myRole === 'owner' ? (
                 <button
                   onClick={handleDelete}
-                  className="w-full py-2 rounded-xl border text-sm font-medium flex items-center justify-center gap-1.5 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                  className="w-full py-2.5 rounded-xl border text-sm font-medium flex items-center justify-center gap-1.5 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
                   style={{ borderColor: '#ef4444', color: '#ef4444' }}
                 >
                   <Trash2 size={13} /> Delete team
@@ -370,7 +294,7 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
               ) : (
                 <button
                   onClick={handleLeave}
-                  className="w-full py-2 rounded-xl border text-sm font-medium flex items-center justify-center gap-1.5 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                  className="w-full py-2.5 rounded-xl border text-sm font-medium flex items-center justify-center gap-1.5 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
                   style={{ borderColor: '#ef4444', color: '#ef4444' }}
                 >
                   Leave team
@@ -380,13 +304,12 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
           </>
         ) : null}
       </div>
-
-      {showInvite && <InviteLinkPanel teamId={teamId} onClose={() => setShowInvite(false)} />}
+      {showInvite && <InviteLinkModal teamId={teamId} onClose={() => setShowInvite(false)} />}
     </>
   )
 }
 
-// ── Teams list ────────────────────────────────────────────────────────────────
+// ── Team card ─────────────────────────────────────────────────────────────────
 
 function TeamCard({ team, onClick }: { team: Team; onClick: () => void }) {
   return (
@@ -397,10 +320,7 @@ function TeamCard({ team, onClick }: { team: Team; onClick: () => void }) {
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--brand)' }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--panel-border)' }}
     >
-      <div
-        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: 'var(--brand-light)' }}
-      >
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--brand-light)' }}>
         <Users size={18} style={{ color: 'var(--brand)' }} />
       </div>
       <div className="flex-1 min-w-0">
@@ -412,7 +332,12 @@ function TeamCard({ team, onClick }: { team: Team; onClick: () => void }) {
           {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
         </p>
       </div>
-      <ChevronRight size={15} className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" style={{ color: 'var(--brand)' }} />
+      <div
+        className="text-xs font-medium px-2.5 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+        style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
+      >
+        Open
+      </div>
     </button>
   )
 }
@@ -438,57 +363,65 @@ export function TeamsPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--canvas-bg)' }}>
-      <TopNav />
+    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--canvas-bg)' }}>
+      <AppSidebar activeTab="teams" />
 
-      <main className="flex-1 max-w-4xl w-full mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar */}
+        <div
+          className="flex items-center justify-between px-8 py-5 flex-shrink-0 border-b"
+          style={{ borderColor: 'var(--panel-border)', background: 'var(--panel-bg)' }}
+        >
           <div>
-            <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Teams</h1>
-            <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+            <h1 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Teams</h1>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
               {loading ? 'Loading…' : `${teams.length} team${teams.length !== 1 ? 's' : ''}`}
             </p>
           </div>
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium hover:opacity-90 transition-opacity"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity shadow-sm"
             style={{ background: 'var(--brand)', color: 'white' }}
           >
-            <Plus size={15} /> New Team
+            <Plus size={14} /> New Team
           </button>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-24">
-            <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
-          </div>
-        ) : teams.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 gap-5">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: 'var(--brand-light)' }}>
-              <Users size={28} style={{ color: 'var(--brand)' }} />
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-8 py-8">
+          {loading ? (
+            <div className="flex items-center justify-center py-32">
+              <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
             </div>
-            <div className="text-center">
-              <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>No teams yet</p>
-              <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-                Create a team and invite your colleagues via a shareable link.
-              </p>
+          ) : teams.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 gap-6">
+              <div className="w-20 h-20 rounded-3xl flex items-center justify-center shadow-inner" style={{ background: 'var(--brand-light)' }}>
+                <Users size={32} style={{ color: 'var(--brand)' }} />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-base" style={{ color: 'var(--text-primary)' }}>No teams yet</p>
+                <p className="text-sm mt-1.5 max-w-xs" style={{ color: 'var(--text-muted)' }}>
+                  Create a team and invite your colleagues to collaborate on shared maps.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCreate(true)}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity shadow-sm"
+                style={{ background: 'var(--brand)', color: 'white' }}
+              >
+                <Plus size={14} /> Create your first team
+              </button>
             </div>
-            <button
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 transition-opacity"
-              style={{ background: 'var(--brand)', color: 'white' }}
-            >
-              <Plus size={14} /> Create your first team
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {teams.map((team) => (
-              <TeamCard key={team.id} team={team} onClick={() => setSelectedTeamId(team.id)} />
-            ))}
-          </div>
-        )}
-      </main>
+          ) : (
+            <div className="max-w-2xl flex flex-col gap-3">
+              {teams.map((team) => (
+                <TeamCard key={team.id} team={team} onClick={() => setSelectedTeamId(team.id)} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {showCreate && (
         <CreateTeamModal
