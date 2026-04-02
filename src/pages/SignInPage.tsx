@@ -42,7 +42,7 @@ export function SignInPage() {
         </div>
         <div className="text-center">
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            DigoNode
+            DigiNode
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             AI-powered mind mapping

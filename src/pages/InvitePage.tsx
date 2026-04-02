@@ -58,7 +58,7 @@ export function InvitePage() {
         <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center">
           <Layers size={16} color="white" />
         </div>
-        <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>DigoNode</span>
+        <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>DigiNode</span>
       </div>
 
       <div
@@ -108,7 +108,7 @@ export function InvitePage() {
                 You've been invited
               </p>
               <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-                Join <strong style={{ color: 'var(--text-primary)' }}>{invite.teamName}</strong> on DigoNode
+                Join <strong style={{ color: 'var(--text-primary)' }}>{invite.teamName}</strong> on DigiNode
               </p>
               <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
                 {invite.memberCount} member{invite.memberCount !== 1 ? 's' : ''} already inside

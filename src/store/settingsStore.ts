@@ -36,6 +36,6 @@ export const useSettingsStore = create<SettingsStore>()(
       setProvider: (provider) => set({ provider, model: DEFAULT_MODEL[provider] }),
       setModel: (model) => set({ model }),
     }),
-    { name: 'digonode-settings' }
+    { name: 'diginode-settings' }
   )
 )

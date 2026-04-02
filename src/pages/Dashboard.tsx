@@ -28,7 +28,7 @@ function TopNav() {
           <Layers size={14} color="white" />
         </div>
         <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-          DigoNode
+          DigiNode
         </span>
       </div>
 

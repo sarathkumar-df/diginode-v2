@@ -966,7 +966,7 @@ app.post('/api/liveblocks-auth', authMiddleware, route(async (req, res) => {
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
-  console.log(`DigoNode AI Server → http://localhost:${PORT}`)
+  console.log(`DigiNode AI Server → http://localhost:${PORT}`)
   console.log(`Anthropic key: ${process.env.ANTHROPIC_API_KEY ? '✓' : '✗ not set'}`)
   console.log(`OpenAI key:    ${process.env.OPENAI_API_KEY ? '✓' : '✗ not set'}`)
   console.log('Users can supply their own key via the Settings panel.')

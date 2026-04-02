@@ -1,4 +1,4 @@
--- DigoNode Phase 2 Database Schema
+-- DigiNode Phase 2 Database Schema
 -- Run this once in Neon DB to set up the tables.
 -- Neon DB: Project → SQL Editor → paste and run.
 

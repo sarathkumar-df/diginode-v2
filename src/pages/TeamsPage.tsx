@@ -30,7 +30,7 @@ function TopNav() {
         <div className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center">
           <Layers size={14} color="white" />
         </div>
-        <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>DigoNode</span>
+        <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>DigiNode</span>
       </div>
       <nav className="flex items-center gap-1">
         <NavLink icon={MapIcon} label="My Maps" onClick={() => navigate('/dashboard')} />
