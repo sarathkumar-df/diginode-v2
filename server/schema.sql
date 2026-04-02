@@ -15,9 +15,13 @@ CREATE TABLE IF NOT EXISTS maps (
   owner_id   TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title      TEXT        NOT NULL DEFAULT 'Untitled',
   data       JSONB       NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
+  thumbnail  TEXT,                              -- base64 data URL, captured on save
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add thumbnail column to existing deployments (safe to re-run)
+ALTER TABLE maps ADD COLUMN IF NOT EXISTS thumbnail TEXT;
 
 -- Index for fast per-user map listing
 CREATE INDEX IF NOT EXISTS maps_owner_updated ON maps (owner_id, updated_at DESC);

@@ -44,7 +44,8 @@ export interface MapMeta {
   title: string
   createdAt: string
   updatedAt: string
-  rootColor?: string  // root node color, returned by GET /api/maps
+  rootColor?: string     // root node color, returned by GET /api/maps
+  thumbnail?: string | null  // JPEG data URL, captured on save
 }
 
 // ─── Mind Map Document ───────────────────────────────────────────────────────

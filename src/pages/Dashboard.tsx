@@ -122,9 +122,18 @@ function MapCard({ map, onDelete }: { map: MapMeta; onDelete: (id: string) => vo
         className="relative w-full overflow-hidden flex-shrink-0"
         style={{ height: 140, background: `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)` }}
       >
-        <div className="absolute inset-0 flex items-center justify-center opacity-90 group-hover:scale-105 transition-transform duration-300">
-          <MapThumbnail id={map.id} color={color} />
-        </div>
+        {map.thumbnail ? (
+          <img
+            src={map.thumbnail}
+            alt={map.title}
+            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            draggable={false}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center opacity-90 group-hover:scale-105 transition-transform duration-300">
+            <MapThumbnail id={map.id} color={color} />
+          </div>
+        )}
         {/* Menu button */}
         <div className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
@@ -191,9 +200,18 @@ function SharedMapCard({ map }: { map: SharedMapMeta }) {
         className="relative w-full overflow-hidden flex-shrink-0"
         style={{ height: 140, background: `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)` }}
       >
-        <div className="absolute inset-0 flex items-center justify-center opacity-90 group-hover:scale-105 transition-transform duration-300">
-          <MapThumbnail id={map.id} color={color} />
-        </div>
+        {map.thumbnail ? (
+          <img
+            src={map.thumbnail}
+            alt={map.title}
+            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            draggable={false}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center opacity-90 group-hover:scale-105 transition-transform duration-300">
+            <MapThumbnail id={map.id} color={color} />
+          </div>
+        )}
         <div
           className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full text-[10px] font-semibold"
           style={{ background: 'rgba(255,255,255,0.88)', color: map.permission === 'edit' ? '#6366f1' : '#6B7280', backdropFilter: 'blur(4px)' }}

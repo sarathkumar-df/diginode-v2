@@ -83,13 +83,16 @@ export async function fetchMap(id: string): Promise<FullMap> {
 export async function saveMap(
   id: string,
   nodes: MindMapNode[],
-  edges: MindMapEdge[]
+  edges: MindMapEdge[],
+  thumbnail?: string | null
 ): Promise<void> {
   const headers = await authHeaders()
+  const body: Record<string, unknown> = { data: { nodes, edges } }
+  if (thumbnail) body.thumbnail = thumbnail
   await fetch(`${API_BASE}/maps/${id}`, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ data: { nodes, edges } }),
+    body: JSON.stringify(body),
   }).catch(() => {/* silent — auto-save failures are non-fatal */})
 }
 

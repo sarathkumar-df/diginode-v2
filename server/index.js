@@ -181,7 +181,7 @@ app.post('/api/users/me', authMiddleware, route(async (req, res) => {
 app.get('/api/maps', authMiddleware, route(async (req, res) => {
   if (!requireDb(res)) return
   const { rows } = await pool.query(
-    `SELECT id, title, created_at, updated_at,
+    `SELECT id, title, created_at, updated_at, thumbnail,
             data -> 'nodes' -> 0 -> 'data' ->> 'color' AS root_color
      FROM maps
      WHERE owner_id = $1
@@ -194,6 +194,7 @@ app.get('/api/maps', authMiddleware, route(async (req, res) => {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     rootColor: r.root_color ?? '#6366f1',
+    thumbnail: r.thumbnail ?? null,
   })))
 }))
 
@@ -229,25 +230,24 @@ app.get('/api/maps/:id', authMiddleware, route(async (req, res) => {
   })
 }))
 
-// PUT /api/maps/:id — update title and/or data (both optional)
+// PUT /api/maps/:id — update title, data, and/or thumbnail (all optional)
 // When data changes, auto-snapshots a version (throttled: max 1 per 5 minutes).
 app.put('/api/maps/:id', authMiddleware, route(async (req, res) => {
   if (!requireDb(res)) return
-  const { title, data } = req.body
+  const { title, data, thumbnail } = req.body
 
-  let query, params
-  if (title !== undefined && data !== undefined) {
-    query = `UPDATE maps SET title=$1, data=$2, updated_at=NOW() WHERE id=$3 AND owner_id=$4`
-    params = [title, JSON.stringify(data), req.params.id, req.user.id]
-  } else if (title !== undefined) {
-    query = `UPDATE maps SET title=$1, updated_at=NOW() WHERE id=$2 AND owner_id=$3`
-    params = [title, req.params.id, req.user.id]
-  } else if (data !== undefined) {
-    query = `UPDATE maps SET data=$1, updated_at=NOW() WHERE id=$2 AND owner_id=$3`
-    params = [JSON.stringify(data), req.params.id, req.user.id]
-  } else {
-    return res.status(400).json({ error: 'title or data is required' })
-  }
+  const sets = []
+  const params = []
+  let i = 1
+  if (title !== undefined)     { sets.push(`title=$${i++}`)     ; params.push(title) }
+  if (data !== undefined)      { sets.push(`data=$${i++}`)      ; params.push(JSON.stringify(data)) }
+  if (thumbnail !== undefined) { sets.push(`thumbnail=$${i++}`) ; params.push(thumbnail) }
+
+  if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' })
+
+  sets.push('updated_at=NOW()')
+  params.push(req.params.id, req.user.id)
+  const query = `UPDATE maps SET ${sets.join(', ')} WHERE id=$${i++} AND owner_id=$${i++}`
 
   const { rowCount } = await pool.query(query, params)
   if (!rowCount) return res.status(404).json({ error: 'Map not found' })
@@ -856,7 +856,7 @@ app.get('/api/shared-maps', authMiddleware, route(async (req, res) => {
   if (!requireDb(res)) return
   const { rows } = await pool.query(
     `SELECT DISTINCT m.id, m.title, m.updated_at, m.created_at,
-            ms.permission,
+            ms.permission, m.thumbnail,
             m.data -> 'nodes' -> 0 -> 'data' ->> 'color' AS root_color,
             u.name AS owner_name
      FROM map_shares ms
@@ -873,6 +873,7 @@ app.get('/api/shared-maps', authMiddleware, route(async (req, res) => {
     permission: r.permission,
     ownerName: r.owner_name,
     rootColor: r.root_color ?? '#6366f1',
+    thumbnail: r.thumbnail ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   })))

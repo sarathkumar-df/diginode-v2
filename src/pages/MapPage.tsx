@@ -18,6 +18,7 @@ import { PresentationMode } from '@/components/UI/PresentationMode'
 import { useUIStore } from '@/store/uiStore'
 import { useMindMapStore } from '@/store/mindmapStore'
 import { saveMap } from '@/services/mapService'
+import { captureThumb } from '@/utils/captureThumb'
 import { fetchSharedMap } from '@/services/shareService'
 import { RoomProvider, presenceColor } from '@/liveblocks.config'
 import { useCurrentUser } from '@/auth/AuthProvider'
@@ -86,7 +87,10 @@ function MapPageInner() {
     if (!isDirtyRef.current) { isDirtyRef.current = true; return }
     if (!activeMapId || permission !== 'edit') return
     clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => saveMap(activeMapId, nodes, edges), SAVE_DEBOUNCE)
+    saveTimerRef.current = setTimeout(async () => {
+      const thumb = await captureThumb()
+      saveMap(activeMapId, nodes, edges, thumb)
+    }, SAVE_DEBOUNCE)
     return () => clearTimeout(saveTimerRef.current)
   }, [nodes, edges])
 
