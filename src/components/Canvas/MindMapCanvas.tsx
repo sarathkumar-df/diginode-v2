@@ -174,8 +174,8 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
       {/* Other users' cursors, rendered in flow-space coordinates */}
       <LiveCursors />
       {isEmptyMap && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-          <div className="text-center select-none" style={{ marginTop: 80 }}>
+        <div className="absolute bottom-12 left-0 right-0 flex justify-center pointer-events-none z-10">
+          <div className="text-center select-none">
             <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
               Click the root node to select it
             </p>
