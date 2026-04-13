@@ -184,6 +184,53 @@ export interface MapVersionData extends MapVersion {
   edges: MindMapEdge[]
 }
 
+// ─── Flow Diagram ───────────────────────────────────────────────────────────
+
+export type FlowNodeType = 'process' | 'decision' | 'label' | 'group' | 'bulletList' | 'swimlane'
+
+export type FlowTagPreset = 'risk' | 'improvement' | 'dependency' | 'custom'
+
+export interface FlowTag {
+  id: string
+  label: string
+  color: string
+  preset: FlowTagPreset
+}
+
+export interface FlowNodeData {
+  label: string
+  subtitle?: string
+  color?: string
+  type: FlowNodeType
+  items?: string[]         // bullet list items
+  childNodeIds?: string[]  // group: ids of nodes contained in this group
+  layerIndex?: number      // swimlane: which layer row this represents
+  tags?: FlowTag[]         // colored tag badges on the node
+  notes?: string           // freeform note attached to the node
+}
+
+export type FlowNode = Node<FlowNodeData>
+export type FlowEdge = Edge<{
+  label?: string
+  color?: string
+  edgeStyle?: 'solid' | 'dashed' | 'dependency'
+  bidirectional?: boolean
+}>
+
+export interface FlowMeta {
+  id: string
+  mapId: string
+  title: string
+  parentFlowId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface FullFlow extends FlowMeta {
+  nodes: FlowNode[]
+  edges: FlowEdge[]
+}
+
 // ─── UI State ────────────────────────────────────────────────────────────────
 
 export type Theme = 'light' | 'dark'

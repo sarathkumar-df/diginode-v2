@@ -2,7 +2,7 @@ import { useCallback, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Download, Search, Sun, Moon, Image,
-  Sparkles, Layers, Map as MapIcon, Wand2, Settings, Workflow,
+  Sparkles, Layers, Map as MapIcon, Wand2, Settings, Workflow, GitBranch,
   MonitorPlay, FileJson, FileText, ArrowLeft, Check, Share2, History,
 } from 'lucide-react'
 import { useMindMapStore, createDefaultMapData } from '@/store/mindmapStore'
@@ -155,6 +155,7 @@ function ExportMenu({ title, nodes, edges }: { title: string; nodes: any; edges:
 
 interface Props {
   onOpenGenerateModal: () => void
+  onOpenFlowGenerate: () => void
   onOpenSettings: () => void
   onOpenShare: () => void
   onOpenHistory: () => void
@@ -163,7 +164,7 @@ interface Props {
 
 // ── Main toolbar ──────────────────────────────────────────────────────────────
 
-export function TopToolbar({ onOpenGenerateModal, onOpenSettings, onOpenShare, onOpenHistory, readOnly = false }: Props) {
+export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSettings, onOpenShare, onOpenHistory, readOnly = false }: Props) {
   const { activeMap, nodes, edges, addMapToList, activeMapId, updateMapMeta } = useMindMapStore()
   const navigate = useNavigate()
   const [editingTitle, setEditingTitle] = useState(false)
@@ -271,6 +272,13 @@ export function TopToolbar({ onOpenGenerateModal, onOpenSettings, onOpenShare, o
         icon={Wand2}
         label="Generate"
         onClick={onOpenGenerateModal}
+        accent
+        disabled={readOnly}
+      />
+      <IconBtn
+        icon={GitBranch}
+        label="Generate Flow"
+        onClick={onOpenFlowGenerate}
         accent
         disabled={readOnly}
       />

@@ -388,6 +388,219 @@ app.delete('/api/maps/:id', authMiddleware, route(async (req, res) => {
   res.json({ ok: true })
 }))
 
+// ─── Flow CRUD ──────────────────────────────────────────────────────────────
+
+// GET /api/maps/:mapId/flows — list flows for a map (metadata only)
+app.get('/api/maps/:mapId/flows', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const mapId = req.params.mapId
+
+  // Must be owner or have shared access
+  const permission = await getUserMapPermission(mapId, req.user.id)
+  if (!permission) return res.status(403).json({ error: 'No access to this map' })
+
+  const { rows } = await pool.query(
+    `SELECT id, map_id, title, parent_flow_id, created_at, updated_at
+     FROM flows WHERE map_id = $1 ORDER BY updated_at DESC`,
+    [mapId]
+  )
+  res.json(rows.map((r) => ({
+    id: r.id,
+    mapId: r.map_id,
+    title: r.title,
+    parentFlowId: r.parent_flow_id,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  })))
+}))
+
+// POST /api/maps/:mapId/flows — create a new flow
+app.post('/api/maps/:mapId/flows', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const mapId = req.params.mapId
+
+  // Must own the map to create flows
+  const { rows: own } = await pool.query(
+    `SELECT id FROM maps WHERE id = $1 AND owner_id = $2`, [mapId, req.user.id]
+  )
+  if (!own[0]) return res.status(403).json({ error: 'Only the map owner can create flows' })
+
+  const { id, title, parentFlowId, data } = req.body
+  if (!id) return res.status(400).json({ error: 'id is required' })
+
+  await pool.query(
+    `INSERT INTO flows (id, map_id, title, parent_flow_id, data)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [id, mapId, title || 'Untitled Flow', parentFlowId || null, JSON.stringify(data || { nodes: [], edges: [] })]
+  )
+  res.json({ ok: true, id })
+}))
+
+// GET /api/maps/:mapId/flows/:flowId — get full flow data
+app.get('/api/maps/:mapId/flows/:flowId', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const { mapId, flowId } = req.params
+
+  const permission = await getUserMapPermission(mapId, req.user.id)
+  if (!permission) return res.status(403).json({ error: 'No access to this map' })
+
+  const { rows } = await pool.query(
+    `SELECT id, map_id, title, parent_flow_id, data, created_at, updated_at
+     FROM flows WHERE id = $1 AND map_id = $2`,
+    [flowId, mapId]
+  )
+  if (!rows[0]) return res.status(404).json({ error: 'Flow not found' })
+  const r = rows[0]
+  res.json({
+    id: r.id,
+    mapId: r.map_id,
+    title: r.title,
+    parentFlowId: r.parent_flow_id,
+    nodes: r.data.nodes ?? [],
+    edges: r.data.edges ?? [],
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  })
+}))
+
+// PUT /api/maps/:mapId/flows/:flowId — update flow title and/or data
+app.put('/api/maps/:mapId/flows/:flowId', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const { mapId, flowId } = req.params
+
+  const { rows: own } = await pool.query(
+    `SELECT id FROM maps WHERE id = $1 AND owner_id = $2`, [mapId, req.user.id]
+  )
+  if (!own[0]) return res.status(403).json({ error: 'Only the map owner can edit flows' })
+
+  const { title, data } = req.body
+  const sets = []
+  const params = []
+  let i = 1
+  if (title !== undefined) { sets.push(`title=$${i++}`); params.push(title) }
+  if (data !== undefined)  { sets.push(`data=$${i++}`);  params.push(JSON.stringify(data)) }
+  if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' })
+
+  sets.push('updated_at=NOW()')
+  params.push(flowId, mapId)
+  const query = `UPDATE flows SET ${sets.join(', ')} WHERE id=$${i++} AND map_id=$${i++}`
+  const { rowCount } = await pool.query(query, params)
+  if (!rowCount) return res.status(404).json({ error: 'Flow not found' })
+  res.json({ ok: true })
+}))
+
+// DELETE /api/maps/:mapId/flows/:flowId — delete a flow
+app.delete('/api/maps/:mapId/flows/:flowId', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const { mapId, flowId } = req.params
+
+  const { rows: own } = await pool.query(
+    `SELECT id FROM maps WHERE id = $1 AND owner_id = $2`, [mapId, req.user.id]
+  )
+  if (!own[0]) return res.status(403).json({ error: 'Only the map owner can delete flows' })
+
+  await pool.query(`DELETE FROM flows WHERE id = $1 AND map_id = $2`, [flowId, mapId])
+  res.json({ ok: true })
+}))
+
+// ─── Generate Flow Diagram from Mind Map ─────────────────────────────────────
+
+app.post('/api/ai/generate-flow', authMiddleware, route(async (req, res) => {
+  const { mapContext } = req.body
+  if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
+  const { provider, apiKey, model } = aiConfig(req)
+
+  const text = await callAI({
+    provider, apiKey, model,
+    max_tokens: 4096,
+    temperature: 0.5,
+    messages: [{
+      role: 'user',
+      content: `You are an expert business analyst and process flow designer. Analyze the following mind map which contains discussion notes from a client meeting. Your task is to extract the key entities, processes, systems, and their relationships, then place them into the correct layers of a structured flow diagram.
+
+<mindmap>
+${formatMapContext(mapContext)}
+</mindmap>
+
+The flow diagram has exactly 4 FIXED layers (swimlanes). You MUST create these 4 swimlane nodes and place all content nodes into the appropriate layer:
+
+LAYER 0 — "Capture Layer": Where data enters the system. POS systems, forms, intake tools, data collection points, client-facing inputs, CRM entry points.
+LAYER 1 — "Core System": Central business systems that process and store data. ERP, accounting software, databases, payment gateways, backend platforms.
+LAYER 2 — "Reporting & Finance": Outputs, dashboards, financial reports, analytics tools, compliance reporting, invoicing, reconciliation.
+LAYER 3 — "Manual Workaround Layer": Manual processes, spreadsheets, workarounds, human-dependent steps, pain points, things that should be automated.
+
+Analyze the mind map content and categorize each entity/process into the correct layer based on its function, NOT its name.
+
+Return ONLY a JSON object with this exact structure:
+{
+  "title": "descriptive title for this flow",
+  "nodes": [
+    {
+      "id": "unique-id",
+      "type": "process" | "decision" | "label" | "group" | "bulletList" | "swimlane",
+      "label": "node text",
+      "subtitle": "optional subtitle or detail",
+      "color": "#hexcolor",
+      "layer": 0,
+      "column": 0,
+      "width": null,
+      "height": null,
+      "parentId": null,
+      "items": []
+    }
+  ],
+  "edges": [
+    {
+      "source": "source-node-id",
+      "target": "target-node-id",
+      "label": "optional edge label",
+      "edgeStyle": "solid" | "dashed",
+      "bidirectional": false
+    }
+  ]
+}
+
+MANDATORY swimlane nodes — you MUST include ALL 4, even if a layer has no content:
+- { "id": "lane-capture", "type": "swimlane", "label": "CAPTURE LAYER", "layer": 0, "column": 0 }
+- { "id": "lane-core", "type": "swimlane", "label": "CORE SYSTEM", "layer": 1, "column": 0 }
+- { "id": "lane-reporting", "type": "swimlane", "label": "REPORTING & FINANCE", "layer": 2, "column": 0 }
+- { "id": "lane-manual", "type": "swimlane", "label": "MANUAL WORKAROUND LAYER", "layer": 3, "column": 0 }
+Do NOT set width/height on swimlanes — the frontend calculates these automatically.
+
+Content node types:
+- "process": Individual systems, tools, or entities (e.g., "Store POS", "SAP B1", "PowerBI"). When inside a group, set "parentId" to the group's id.
+- "group": A container box holding related child nodes (e.g., "Legal Entities" containing "Oxygen Digital" and "SSQ"). Do NOT set width/height — auto-calculated. Child nodes set "parentId" to this group's id.
+- "decision": Decision points or conditional paths (diamond shape).
+- "bulletList": A node with a header and bullet point items. Set the "items" array. Best for manual workarounds, requirements, pain points.
+- "label": Simple text label for annotations. Use sparingly.
+
+CRITICAL layout rules:
+- Every content node (process, group, bulletList, decision) MUST have "layer" set to 0, 1, 2, or 3
+- "column" is the LEFT-TO-RIGHT position within a layer. Start at 0. Each top-level node in a layer gets the next column number (0, 1, 2, 3...)
+- Nodes inside a group: set "parentId" to group id. Their "column" is the position WITHIN the group (0, 1, 2...)
+- Groups and their children must be in the SAME layer
+- Do NOT put more than 4-5 top-level nodes in one layer — split into groups if needed
+- Assign colors by meaning: blue (#3B82F6) for systems, green (#10B981) for working processes, orange (#F59E0B) for integrations/gateways, purple (#8B5CF6) for reporting, red (#EF4444) for manual/problematic areas, slate (#475569) for groups
+- Extract client-specific terminology directly (company names, system names, tool names)
+- Create meaningful connections between layers showing data/process flow. Use dashed edges for weak/pending integrations
+- Use bulletList nodes in layer 3 (Manual Workaround) to list manual steps and pain points
+- Aim for 10-20 content nodes total, using a mix of node types for visual richness
+
+Output ONLY the JSON, no explanation.`,
+    }],
+  })
+
+  const match = text.match(/\{[\s\S]*\}/)
+  if (!match) return res.status(500).json({ error: 'Failed to parse AI response' })
+
+  try {
+    const parsed = JSON.parse(match[0])
+    res.json(parsed)
+  } catch {
+    res.status(500).json({ error: 'Failed to parse AI response as JSON' })
+  }
+}))
+
 // Test connection
 app.post('/api/ai/test-connection', authMiddleware, route(async (req, res) => {
   const { provider, apiKey, model } = aiConfig(req)

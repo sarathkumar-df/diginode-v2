@@ -115,3 +115,101 @@ function downloadBlob(blob: Blob, filename: string): void {
   a.click()
   URL.revokeObjectURL(url)
 }
+
+// ── Flow diagram exports ──────────────────────────────────────────────────────
+
+const flowExportFilter = (node: HTMLElement | Element) => {
+  if (!(node instanceof Element)) return true
+  const exclude = ['react-flow__controls', 'react-flow__minimap', 'react-flow__panel']
+  return !exclude.some((cls) => node.classList.contains(cls))
+}
+
+export async function exportFlowToPng(title: string): Promise<void> {
+  const flowEl = document.querySelector('.react-flow') as HTMLElement
+  if (!flowEl) return
+
+  try {
+    const { toPng } = await import('html-to-image')
+    const canvasBg = getComputedStyle(document.documentElement)
+      .getPropertyValue('--canvas-bg').trim() || '#FEFCF3'
+
+    const dataUrl = await toPng(flowEl, {
+      pixelRatio: 2,
+      backgroundColor: canvasBg,
+      filter: flowExportFilter,
+    })
+
+    downloadBlob(dataUrlToBlob(dataUrl), `${title.replace(/\s+/g, '-')}-flow.png`)
+  } catch (err) {
+    console.error('Flow PNG export failed:', err)
+  }
+}
+
+export async function exportFlowToSvg(title: string): Promise<void> {
+  const flowEl = document.querySelector('.react-flow') as HTMLElement
+  if (!flowEl) return
+
+  try {
+    const { toSvg } = await import('html-to-image')
+    const canvasBg = getComputedStyle(document.documentElement)
+      .getPropertyValue('--canvas-bg').trim() || '#FEFCF3'
+
+    const dataUrl = await toSvg(flowEl, {
+      backgroundColor: canvasBg,
+      filter: flowExportFilter,
+    })
+
+    downloadBlob(dataUrlToBlob(dataUrl), `${title.replace(/\s+/g, '-')}-flow.svg`)
+  } catch (err) {
+    console.error('Flow SVG export failed:', err)
+  }
+}
+
+export async function exportFlowToPdf(title: string): Promise<void> {
+  const flowEl = document.querySelector('.react-flow') as HTMLElement
+  if (!flowEl) return
+
+  try {
+    const { toPng } = await import('html-to-image')
+    const canvasBg = getComputedStyle(document.documentElement)
+      .getPropertyValue('--canvas-bg').trim() || '#FEFCF3'
+
+    const dataUrl = await toPng(flowEl, {
+      pixelRatio: 2,
+      backgroundColor: canvasBg,
+      filter: flowExportFilter,
+    })
+
+    // Create a printable page with the image and trigger browser print
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    const img = new Image()
+    img.src = dataUrl
+    await new Promise<void>((resolve) => { img.onload = () => resolve() })
+
+    const landscape = img.width > img.height
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${title} — Flow Diagram</title>
+        <style>
+          @page { size: ${landscape ? 'landscape' : 'portrait'}; margin: 0.5in; }
+          body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: white; }
+          img { max-width: 100%; max-height: 100vh; object-fit: contain; }
+        </style>
+      </head>
+      <body>
+        <img src="${dataUrl}" />
+      </body>
+      </html>
+    `)
+    printWindow.document.close()
+    printWindow.focus()
+    setTimeout(() => printWindow.print(), 300)
+  } catch (err) {
+    console.error('Flow PDF export failed:', err)
+  }
+}

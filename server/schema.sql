@@ -66,6 +66,22 @@ CREATE TABLE IF NOT EXISTS map_shares (
 
 CREATE INDEX IF NOT EXISTS map_shares_team ON map_shares (team_id);
 
+-- ── Phase 6: Flow Diagrams ────────────────────────────────────────────────────
+-- AI-generated flow diagrams derived from mind map context.
+-- Each flow belongs to a map. Derivative flows reference a parent flow.
+
+CREATE TABLE IF NOT EXISTS flows (
+  id              TEXT        PRIMARY KEY,           -- UUID generated on the client
+  map_id          TEXT        NOT NULL REFERENCES maps(id) ON DELETE CASCADE,
+  title           TEXT        NOT NULL DEFAULT 'Untitled Flow',
+  parent_flow_id  TEXT        REFERENCES flows(id) ON DELETE SET NULL,
+  data            JSONB       NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS flows_map ON flows (map_id, updated_at DESC);
+
 -- ── Phase 5: Version History ──────────────────────────────────────────────────
 -- Snapshots are created automatically on save, throttled to one per 5 minutes.
 -- Max 30 versions per map; oldest are pruned on insert.

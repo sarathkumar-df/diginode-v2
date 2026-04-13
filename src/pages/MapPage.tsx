@@ -15,6 +15,7 @@ import { SettingsModal } from '@/components/UI/SettingsModal'
 import { ShareModal } from '@/components/UI/ShareModal'
 import { VersionHistoryPanel } from '@/components/UI/VersionHistoryPanel'
 import { PresentationMode } from '@/components/UI/PresentationMode'
+import { FlowPreviewModal } from '@/components/Flow/FlowPreviewModal'
 import { useUIStore } from '@/store/uiStore'
 import { useMindMapStore } from '@/store/mindmapStore'
 import { saveMap } from '@/services/mapService'
@@ -36,6 +37,7 @@ function MapPageInner() {
   const { fitView, getViewport, setViewport } = useReactFlow()
 
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
+  const [flowGenerateOpen, setFlowGenerateOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -148,6 +150,7 @@ function MapPageInner() {
           {/* Header toolbar */}
           <TopToolbar
             onOpenGenerateModal={() => setGenerateModalOpen(true)}
+            onOpenFlowGenerate={() => setFlowGenerateOpen(true)}
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenShare={() => setShareOpen(true)}
             onOpenHistory={() => setHistoryOpen(true)}
@@ -179,6 +182,11 @@ function MapPageInner() {
 
             {/* Modals / panels */}
             <GenerateMapModal open={generateModalOpen} onClose={() => setGenerateModalOpen(false)} />
+            <FlowPreviewModal
+              open={flowGenerateOpen}
+              onClose={() => setFlowGenerateOpen(false)}
+              mapId={activeMapId ?? ''}
+            />
             <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
             <ShareModal
               open={shareOpen}

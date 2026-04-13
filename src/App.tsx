@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { MapPage } from '@/pages/MapPage'
+import FlowPage from '@/pages/FlowPage'
 import { Dashboard } from '@/pages/Dashboard'
 import { TeamsPage } from '@/pages/TeamsPage'
 import { InvitePage } from '@/pages/InvitePage'
@@ -38,6 +39,7 @@ export default function App() {
       {/* Protected */}
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/map/:mapId" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
+      <Route path="/map/:mapId/flow/:flowId" element={<ProtectedRoute><FlowPage /></ProtectedRoute>} />
       <Route path="/teams" element={<ProtectedRoute><TeamsPage /></ProtectedRoute>} />
 
       {/* Default: authenticated → dashboard, unauthenticated → sign-in */}

@@ -8,6 +8,7 @@ import {
 import { useMindMapStore, createDefaultMapData } from '@/store/mindmapStore'
 import { createMap, deleteMap, renameMap } from '@/services/mapService'
 import { useConfirm } from '@/components/UI/ConfirmModal'
+import { FlowsPanel } from '@/components/Flow/FlowsPanel'
 import { MapMeta } from '@/types'
 
 interface Props {
@@ -232,6 +233,13 @@ export function LeftSidebar({ collapsed, onToggle }: Props) {
           )
         })}
       </div>
+
+      {/* Flows section — shown when a map is active */}
+      {!collapsed && activeMapId && (
+        <div className="flex-shrink-0 border-t" style={{ borderColor: 'var(--panel-border)' }}>
+          <FlowsPanel mapId={activeMapId} />
+        </div>
+      )}
 
       {/* Footer */}
       <AnimatePresence>
