@@ -5,20 +5,21 @@ export type AIProvider = 'openai' | 'anthropic'
 
 export const MODELS: Record<AIProvider, { id: string; label: string }[]> = {
   openai: [
+    { id: 'gpt-4o-mini', label: 'GPT-4o Mini (fast)' },
     { id: 'gpt-4o', label: 'GPT-4o' },
-    { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
     { id: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
   ],
   anthropic: [
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (fast)' },
+    { id: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
     { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
     { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
   ],
 }
 
 const DEFAULT_MODEL: Record<AIProvider, string> = {
-  openai: 'gpt-4o',
-  anthropic: 'claude-opus-4-6',
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-sonnet-4-6',
 }
 
 interface SettingsStore {

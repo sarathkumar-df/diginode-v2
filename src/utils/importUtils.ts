@@ -43,6 +43,8 @@ export function parseJSON(raw: string): { title: string; nodes: MindMapNode[]; e
         id: uuidv4(),
         source: idMap.get(e.source) ?? e.source,
         target: idMap.get(e.target) ?? e.target,
+        sourceHandle: 'right',
+        targetHandle: 'left',
         type: 'mindmapEdge',
       }))
       return { title: parsed.title ?? 'Imported Map', nodes, edges }
@@ -145,7 +147,7 @@ export function parseMarkdown(raw: string): { title: string; nodes: MindMapNode[
         position: { x, y: nodeY },
         data: { label: child.label, color, shape: 'rounded', level: depth },
       } as MindMapNode)
-      edges.push({ id: uuidv4(), source: parentId, target: id, type: 'mindmapEdge' } as MindMapEdge)
+      edges.push({ id: uuidv4(), source: parentId, target: id, sourceHandle: 'right', targetHandle: 'left', type: 'mindmapEdge' } as MindMapEdge)
       if (child.children.length > 0) {
         placeChildren(id, child.children, depth + 1, y)
       }

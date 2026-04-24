@@ -11,6 +11,7 @@ import ReactFlow, {
   useReactFlow,
   OnConnectStart,
   OnConnectEnd,
+  Node,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { useMindMapStore } from '@/store/mindmapStore'
@@ -18,6 +19,7 @@ import { useUIStore } from '@/store/uiStore'
 import { MindMapNode } from './MindMapNode'
 import { CustomEdge } from './CustomEdge'
 import { LiveCursors } from './LiveCursors'
+import { NodeAIPopover } from './NodeAIPopover'
 import { useKeyboard } from '@/hooks/useKeyboard'
 import { useUpdateMyPresence } from '@/liveblocks.config'
 
@@ -38,6 +40,7 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
     onConnect,
     addNode,
     addNodeAtPosition,
+    reparentNode,
     layoutVersion,
   } = useMindMapStore()
 
@@ -45,14 +48,16 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
     theme,
     minimapVisible,
     setSelectedNodes,
+    setSelectedEdges,
     clearSelection,
     setInspectorNode,
+    setDropTargetId,
     presentationMode,
     presentationIndex,
     presentationOrder,
   } = useUIStore()
 
-  const { screenToFlowPosition, fitView } = useReactFlow()
+  const { screenToFlowPosition, fitView, getIntersectingNodes } = useReactFlow()
   const updateMyPresence = useUpdateMyPresence()
 
   // Fit view to current presentation node when step changes
@@ -64,7 +69,9 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
     return () => clearTimeout(id)
   }, [presentationMode, presentationIndex, presentationOrder, fitView])
 
-  // Fit view after auto-layout
+  // Fit view only when the user explicitly clicks the Layout button (which
+  // bumps layoutVersion). Add/delete actions intentionally skip the bump so the
+  // user's current zoom/pan stays put — they can re-fit manually if they want.
   const prevLayoutVersion = useRef(layoutVersion)
   useEffect(() => {
     if (layoutVersion > prevLayoutVersion.current) {
@@ -75,20 +82,14 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
     prevLayoutVersion.current = layoutVersion
   }, [layoutVersion, fitView])
 
-  // Auto fit-view when nodes are added
-  const prevNodeCount = useRef(nodes.length)
-  useEffect(() => {
-    if (nodes.length > prevNodeCount.current) {
-      // Defer until React Flow has finished rendering/positioning the new node
-      const id = setTimeout(() => fitView({ duration: 400, padding: 0.25 }), 50)
-      prevNodeCount.current = nodes.length
-      return () => clearTimeout(id)
-    }
-    prevNodeCount.current = nodes.length
-  }, [nodes.length, fitView])
-
   // Track which node a connection drag started from
   const connectSourceId = useRef<string | null>(null)
+
+  // Drag-to-reparent: while a node is being dragged, we precompute the set of
+  // invalid drop targets (the node itself + every descendant) so we can skip
+  // cycle-creating drops without re-walking the tree on every drag tick.
+  const excludedTargetsRef = useRef<Set<string>>(new Set())
+  const pendingDropTargetRef = useRef<string | null>(null)
 
   useKeyboard()
 
@@ -111,13 +112,15 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
   }, [clearSelection, setInspectorNode])
 
   const handleSelectionChange = useCallback(
-    ({ nodes: selectedNodes }: { nodes: any[] }) => {
-      const ids = selectedNodes.map((n) => n.id)
-      setSelectedNodes(ids)
-      if (ids.length === 1) setInspectorNode(ids[0])
+    ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: any[]; edges: any[] }) => {
+      const nodeIds = selectedNodes.map((n) => n.id)
+      const edgeIds = selectedEdges.map((e) => e.id)
+      setSelectedNodes(nodeIds)
+      setSelectedEdges(edgeIds)
+      if (nodeIds.length === 1) setInspectorNode(nodeIds[0])
       else setInspectorNode(null)
     },
-    [setSelectedNodes, setInspectorNode]
+    [setSelectedNodes, setSelectedEdges, setInspectorNode]
   )
 
   // Record which node the drag started from
@@ -162,6 +165,57 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
     [screenToFlowPosition, addNodeAtPosition, setSelectedNodes, setInspectorNode]
   )
 
+  // ── Drag-to-reparent ───────────────────────────────────────────────────────
+
+  const handleNodeDragStart = useCallback(
+    (_evt: React.MouseEvent, node: Node) => {
+      // Root node has no parent, can't be reparented — skip target tracking.
+      if (node.data?.level === 0) {
+        excludedTargetsRef.current = new Set()
+        return
+      }
+      const excluded = new Set<string>([node.id])
+      const stack = [node.id]
+      while (stack.length > 0) {
+        const id = stack.pop()!
+        edges.forEach((e) => {
+          if (e.source === id && !excluded.has(e.target)) {
+            excluded.add(e.target)
+            stack.push(e.target)
+          }
+        })
+      }
+      excludedTargetsRef.current = excluded
+    },
+    [edges]
+  )
+
+  const handleNodeDrag = useCallback(
+    (_evt: React.MouseEvent, node: Node) => {
+      if (excludedTargetsRef.current.size === 0) return
+      const intersecting = getIntersectingNodes(node).filter(
+        (n) => !excludedTargetsRef.current.has(n.id)
+      )
+      const target = intersecting[0]?.id ?? null
+      if (target !== pendingDropTargetRef.current) {
+        pendingDropTargetRef.current = target
+        setDropTargetId(target)
+      }
+    },
+    [getIntersectingNodes, setDropTargetId]
+  )
+
+  const handleNodeDragStop = useCallback(
+    (_evt: React.MouseEvent, node: Node) => {
+      const target = pendingDropTargetRef.current
+      pendingDropTargetRef.current = null
+      excludedTargetsRef.current = new Set()
+      setDropTargetId(null)
+      if (target) reparentNode(node.id, target)
+    },
+    [reparentNode, setDropTargetId]
+  )
+
   const isEmptyMap = nodes.length <= 1
 
   return (
@@ -194,6 +248,9 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
         onConnect={onConnect}
         onConnectStart={handleConnectStart}
         onConnectEnd={handleConnectEnd}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDrag={handleNodeDrag}
+        onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
         onSelectionChange={handleSelectionChange}
         nodeTypes={nodeTypes}
@@ -236,6 +293,7 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
             zoomable
           />
         )}
+        {!readOnly && !presentationMode && <NodeAIPopover />}
       </ReactFlow>
     </div>
   )

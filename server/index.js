@@ -36,7 +36,7 @@ function getOpenAIClient(apiKey) {
 
 function resolveModel(provider, model) {
   if (model) return model
-  return provider === 'openai' ? 'gpt-4o' : 'claude-opus-4-6'
+  return provider === 'openai' ? 'gpt-4o-mini' : 'claude-sonnet-4-6'
 }
 
 function aiConfig(req) {
@@ -61,12 +61,35 @@ function emitChunk(res, text) {
 
 // ─── Provider calls ───────────────────────────────────────────────────────────
 
+// Flatten a system value (string | Anthropic block array) to a single string for OpenAI.
+function systemToString(system) {
+  if (!system) return null
+  if (typeof system === 'string') return system
+  return system.map((b) => b.text ?? '').filter(Boolean).join('\n\n')
+}
+
+// Build a system value for an AI call. When `mapContext` is provided, the map
+// section is wrapped in a cache_control block for Anthropic so repeated calls
+// within ~5 min pay a large discount on the shared context tokens.
+// For OpenAI, this flattens to a plain string (OpenAI caches automatically).
+// Pass { includeIds: true } only for endpoints that require id-keyed output;
+// otherwise ids pollute the model's prose responses.
+function buildSystem(instruction, mapContext, opts = {}) {
+  if (!mapContext) return instruction
+  const mapBlock = `<mindmap>\n${formatMapContext(mapContext, opts)}\n</mindmap>`
+  return [
+    { type: 'text', text: instruction },
+    { type: 'text', text: mapBlock, cache_control: { type: 'ephemeral' } },
+  ]
+}
+
 // Non-streaming: returns text string
 async function callAI({ provider, apiKey, model, system, messages, max_tokens, temperature }) {
   const mdl = resolveModel(provider, model)
   if (provider === 'openai') {
+    const sysStr = systemToString(system)
     const client = getOpenAIClient(apiKey)
-    const msgs = system ? [{ role: 'system', content: system }, ...messages] : messages
+    const msgs = sysStr ? [{ role: 'system', content: sysStr }, ...messages] : messages
     const res = await client.chat.completions.create({ model: mdl, messages: msgs, max_tokens, temperature, stream: false })
     return res.choices[0]?.message?.content ?? ''
   } else {
@@ -78,6 +101,51 @@ async function callAI({ provider, apiKey, model, system, messages, max_tokens, t
   }
 }
 
+// Structured JSON output — uses Anthropic tool_use or OpenAI json_schema.
+// Both providers are forced to return a JSON payload matching `schema`, which
+// removes the regex-parse fragility of asking the model to "return only JSON".
+// `toolName` is Anthropic-side (tool name); OpenAI uses it as the schema name.
+async function callAIJSON({
+  provider, apiKey, model, system, messages, max_tokens, temperature,
+  toolName, toolDescription, schema,
+}) {
+  const mdl = resolveModel(provider, model)
+
+  if (provider === 'openai') {
+    const sysStr = systemToString(system)
+    const client = getOpenAIClient(apiKey)
+    const msgs = sysStr ? [{ role: 'system', content: sysStr }, ...messages] : messages
+    const res = await client.chat.completions.create({
+      model: mdl,
+      messages: msgs,
+      max_tokens,
+      temperature,
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: toolName, schema, strict: false },
+      },
+    })
+    const content = res.choices[0]?.message?.content ?? ''
+    if (!content) throw new Error('Empty response from model')
+    return JSON.parse(content)
+  }
+
+  const client = getAnthropicClient(apiKey)
+  const params = {
+    model: mdl,
+    max_tokens,
+    messages,
+    temperature,
+    tools: [{ name: toolName, description: toolDescription, input_schema: schema }],
+    tool_choice: { type: 'tool', name: toolName },
+  }
+  if (system) params.system = system
+  const msg = await client.messages.create(params)
+  const toolUse = msg.content.find((b) => b.type === 'tool_use')
+  if (!toolUse) throw new Error('Model did not return a structured response')
+  return toolUse.input
+}
+
 // Streaming: pipes chunks to res via SSE
 // Caller must wrap in try-catch and NOT have sent headers yet
 async function streamToRes(res, { provider, apiKey, model, system, messages, max_tokens, temperature }) {
@@ -85,8 +153,9 @@ async function streamToRes(res, { provider, apiKey, model, system, messages, max
   setupSSE(res)
   try {
     if (provider === 'openai') {
+      const sysStr = systemToString(system)
       const client = getOpenAIClient(apiKey)
-      const msgs = system ? [{ role: 'system', content: system }, ...messages] : messages
+      const msgs = sysStr ? [{ role: 'system', content: sysStr }, ...messages] : messages
       const stream = await client.chat.completions.create({ model: mdl, messages: msgs, max_tokens, temperature, stream: true })
       for await (const chunk of stream) {
         emitChunk(res, chunk.choices[0]?.delta?.content ?? '')
@@ -109,16 +178,175 @@ async function streamToRes(res, { provider, apiKey, model, system, messages, max
   res.end()
 }
 
+// ─── JSON schemas for structured outputs ─────────────────────────────────────
+
+const SUGGESTION_ARRAY_SCHEMA = {
+  type: 'object',
+  properties: {
+    suggestions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string', description: 'Concise idea label, 2-6 words' },
+          icon: { type: 'string', description: 'Single emoji representing the idea' },
+        },
+        required: ['label'],
+      },
+    },
+  },
+  required: ['suggestions'],
+}
+
+const CONNECTIONS_SCHEMA = {
+  type: 'object',
+  properties: {
+    connections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          sourceId: { type: 'string', description: 'Exact id of an existing node' },
+          targetId: { type: 'string', description: 'Exact id of an existing node' },
+          reason: { type: 'string', description: 'Short explanation of the connection' },
+        },
+        required: ['sourceId', 'targetId', 'reason'],
+      },
+    },
+  },
+  required: ['connections'],
+}
+
+const GENERATED_MAP_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    nodes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          icon: { type: 'string' },
+          color: { type: 'string' },
+          children: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string' },
+                icon: { type: 'string' },
+                children: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      label: { type: 'string' },
+                      icon: { type: 'string' },
+                    },
+                    required: ['label'],
+                  },
+                },
+              },
+              required: ['label'],
+            },
+          },
+        },
+        required: ['label'],
+      },
+    },
+  },
+  required: ['title', 'nodes'],
+}
+
+const FLOW_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    nodes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          type: { type: 'string', enum: ['process', 'decision', 'label', 'group', 'bulletList', 'swimlane'] },
+          label: { type: 'string' },
+          subtitle: { type: 'string' },
+          color: { type: 'string' },
+          layer: { type: 'number' },
+          column: { type: 'number' },
+          parentId: { type: ['string', 'null'] },
+          items: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['id', 'type', 'label', 'layer', 'column'],
+      },
+    },
+    edges: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          source: { type: 'string' },
+          target: { type: 'string' },
+          label: { type: 'string' },
+          edgeStyle: { type: 'string', enum: ['solid', 'dashed'] },
+          bidirectional: { type: 'boolean' },
+        },
+        required: ['source', 'target'],
+      },
+    },
+  },
+  required: ['title', 'nodes', 'edges'],
+}
+
 // ─── Context formatter ────────────────────────────────────────────────────────
 
-function formatMapContext(mapContext) {
+// Serialize the map for an AI prompt. IDs are excluded by default — the model
+// only needs them for endpoints that return id-keyed output (find-connections),
+// and including them otherwise pollutes responses because the model echoes ids
+// back inside its analysis prose.
+function formatMapContext(mapContext, { includeIds = false } = {}) {
   if (!mapContext) return 'No mind map context provided.'
-  const lines = [`Mind Map: "${mapContext.title}"`, `Nodes (${mapContext.nodes.length} total):`]
-  mapContext.nodes.forEach((node) => {
+
+  const nodes = mapContext.nodes ?? []
+  const edges = mapContext.edges ?? []
+
+  // Build children map for quick lookup during cross-link detection below
+  const parentOf = new Map()
+  nodes.forEach((n) => (n.children ?? []).forEach((childId) => parentOf.set(childId, n.id)))
+
+  const lines = [
+    `Mind Map: "${mapContext.title}"`,
+    `Nodes (${nodes.length} total):`,
+  ]
+
+  // Render the tree (indented by level) with inline notes
+  nodes.forEach((node) => {
     const indent = '  '.repeat(node.level ?? 0)
     const check = node.checked !== undefined ? (node.checked ? '[x] ' : '[ ] ') : ''
-    lines.push(`${indent}${check}${node.label} (id: ${node.id})`)
+    const idTag = includeIds ? ` (id: ${node.id})` : ''
+    lines.push(`${indent}${check}${node.label}${idTag}`)
+    if (node.notes?.trim()) {
+      // Collapse whitespace so multi-line notes stay on one line per node
+      const oneLine = node.notes.trim().replace(/\s+/g, ' ')
+      lines.push(`${indent}  note: ${oneLine}`)
+    }
   })
+
+  // Render cross-links — edges that don't already correspond to the tree's
+  // parent→child relationship. These are the signal-rich connections users have
+  // drawn manually and would otherwise be invisible to the AI.
+  const crossLinks = edges.filter((e) => parentOf.get(e.target) !== e.source)
+  if (crossLinks.length > 0) {
+    const labelOf = new Map(nodes.map((n) => [n.id, n.label]))
+    lines.push('', `Cross-links (${crossLinks.length}):`)
+    crossLinks.forEach((e) => {
+      const src = labelOf.get(e.source) ?? e.source
+      const tgt = labelOf.get(e.target) ?? e.target
+      lines.push(`- "${src}" → "${tgt}"`)
+    })
+  }
+
   return lines.join('\n')
 }
 
@@ -510,17 +738,20 @@ app.post('/api/ai/generate-flow', authMiddleware, route(async (req, res) => {
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
   const { provider, apiKey, model } = aiConfig(req)
 
-  const text = await callAI({
+  const parsed = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 4096,
     temperature: 0.5,
+    system: buildSystem(
+      'You are an expert business analyst and process flow designer. You extract entities, processes, systems, and relationships from mind maps and organize them into structured 4-layer swimlane flow diagrams.',
+      mapContext,
+    ),
+    toolName: 'return_flow_diagram',
+    toolDescription: 'Return the structured flow diagram with swimlanes, content nodes, and edges.',
+    schema: FLOW_SCHEMA,
     messages: [{
       role: 'user',
-      content: `You are an expert business analyst and process flow designer. Analyze the following mind map which contains discussion notes from a client meeting. Your task is to extract the key entities, processes, systems, and their relationships, then place them into the correct layers of a structured flow diagram.
-
-<mindmap>
-${formatMapContext(mapContext)}
-</mindmap>
+      content: `Analyze the mind map in the system context and organize its content into a 4-layer swimlane flow diagram.
 
 The flow diagram has exactly 4 FIXED layers (swimlanes). You MUST create these 4 swimlane nodes and place all content nodes into the appropriate layer:
 
@@ -530,35 +761,6 @@ LAYER 2 — "Reporting & Finance": Outputs, dashboards, financial reports, analy
 LAYER 3 — "Manual Workaround Layer": Manual processes, spreadsheets, workarounds, human-dependent steps, pain points, things that should be automated.
 
 Analyze the mind map content and categorize each entity/process into the correct layer based on its function, NOT its name.
-
-Return ONLY a JSON object with this exact structure:
-{
-  "title": "descriptive title for this flow",
-  "nodes": [
-    {
-      "id": "unique-id",
-      "type": "process" | "decision" | "label" | "group" | "bulletList" | "swimlane",
-      "label": "node text",
-      "subtitle": "optional subtitle or detail",
-      "color": "#hexcolor",
-      "layer": 0,
-      "column": 0,
-      "width": null,
-      "height": null,
-      "parentId": null,
-      "items": []
-    }
-  ],
-  "edges": [
-    {
-      "source": "source-node-id",
-      "target": "target-node-id",
-      "label": "optional edge label",
-      "edgeStyle": "solid" | "dashed",
-      "bidirectional": false
-    }
-  ]
-}
 
 MANDATORY swimlane nodes — you MUST include ALL 4, even if a layer has no content:
 - { "id": "lane-capture", "type": "swimlane", "label": "CAPTURE LAYER", "layer": 0, "column": 0 }
@@ -584,21 +786,11 @@ CRITICAL layout rules:
 - Extract client-specific terminology directly (company names, system names, tool names)
 - Create meaningful connections between layers showing data/process flow. Use dashed edges for weak/pending integrations
 - Use bulletList nodes in layer 3 (Manual Workaround) to list manual steps and pain points
-- Aim for 10-20 content nodes total, using a mix of node types for visual richness
-
-Output ONLY the JSON, no explanation.`,
+- Aim for 10-20 content nodes total, using a mix of node types for visual richness`,
     }],
   })
 
-  const match = text.match(/\{[\s\S]*\}/)
-  if (!match) return res.status(500).json({ error: 'Failed to parse AI response' })
-
-  try {
-    const parsed = JSON.parse(match[0])
-    res.json(parsed)
-  } catch {
-    res.status(500).json({ error: 'Failed to parse AI response as JSON' })
-  }
+  res.json(parsed)
 }))
 
 // Test connection
@@ -615,95 +807,117 @@ app.post('/api/ai/test-connection', authMiddleware, route(async (req, res) => {
   res.json({ ok: true, response: text.trim() })
 }))
 
-// 0. Generate mind map from pasted text (streaming)
+// 0. Generate mind map from pasted text
 app.post('/api/ai/generate-from-text', authMiddleware, route(async (req, res) => {
   const { text } = req.body
   if (!text) return res.status(400).json({ error: 'text is required' })
   const { provider, apiKey, model } = aiConfig(req)
-  await streamToRes(res, {
+  const parsed = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 2048,
     temperature: 0.5,
+    toolName: 'return_mindmap',
+    toolDescription: 'Return the mind map structure extracted from the content.',
+    schema: GENERATED_MAP_SCHEMA,
     messages: [{
       role: 'user',
-      content: `Analyze the following content and create a structured mind map that captures all key ideas, themes, and relationships.
+      content: `Analyze the following content and create a structured mind map that captures all key ideas, themes, and relationships. Create 4-6 main branches, each with 2-4 children. Assign each main branch a distinct color from: #FF6B6B, #FF9F43, #FECA57, #1DD1A1, #54A0FF, #5F27CD. Use a relevant emoji per node.
 
 Content:
 """
 ${text.slice(0, 6000)}
-"""
-
-Output a JSON object with this exact structure:
-{
-  "title": "concise descriptive title",
-  "nodes": [
-    {
-      "label": "main theme",
-      "icon": "relevant emoji",
-      "color": "#hexcolor",
-      "children": [
-        { "label": "sub-point", "icon": "emoji", "children": [] }
-      ]
-    }
-  ]
-}
-
-Colors for main branches: #FF6B6B, #FF9F43, #FECA57, #1DD1A1, #54A0FF, #5F27CD
-Create 4-6 main branches, each with 2-4 children. Output ONLY the JSON.`,
+"""`,
     }],
   })
+  res.json(parsed)
 }))
 
-// 1. Generate mind map from topic (streaming)
+// 1. Generate mind map from topic
 app.post('/api/ai/generate-map', authMiddleware, route(async (req, res) => {
   const { topic } = req.body
   if (!topic) return res.status(400).json({ error: 'topic is required' })
   const { provider, apiKey, model } = aiConfig(req)
-  await streamToRes(res, {
+  const parsed = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 2048,
     temperature: 0.7,
+    toolName: 'return_mindmap',
+    toolDescription: 'Return the mind map structure for the given topic.',
+    schema: GENERATED_MAP_SCHEMA,
     messages: [{
       role: 'user',
-      content: `Create a detailed mind map structure for the topic: "${topic}"
-
-Output a JSON object with this exact structure:
-{
-  "title": "topic name",
-  "nodes": [
-    {
-      "label": "main branch",
-      "icon": "emoji",
-      "color": "#hexcolor",
-      "children": [
-        { "label": "sub-topic", "icon": "emoji", "children": [] }
-      ]
-    }
-  ]
-}
-
-Use these colors for branches: #FF6B6B, #FF9F43, #FECA57, #1DD1A1, #54A0FF, #5F27CD
-Create 4-6 main branches, each with 3-5 children. Output ONLY the JSON, no explanation.`,
+      content: `Create a detailed mind map structure for the topic: "${topic}". Create 4-6 main branches, each with 3-5 children. Assign each main branch a distinct color from: #FF6B6B, #FF9F43, #FECA57, #1DD1A1, #54A0FF, #5F27CD. Use a relevant emoji per node.`,
     }],
   })
+  res.json(parsed)
 }))
+
+// Build the style and exclude clauses shared by both expand endpoints.
+// `style` is one of the refinement modes: 'concrete', 'ambitious', or unset.
+// `excludeLabels` is the list of already-shown suggestions to avoid repeating.
+function buildRefinementClauses(style, excludeLabels) {
+  const clauses = []
+  if (style === 'concrete') {
+    clauses.push('Make suggestions more CONCRETE and specific — each idea should be something the user could act on tomorrow.')
+  } else if (style === 'ambitious') {
+    clauses.push('Make suggestions BOLDER and more ambitious — push past the obvious; unconventional ideas welcome.')
+  }
+  if (Array.isArray(excludeLabels) && excludeLabels.length > 0) {
+    const list = excludeLabels.map((l) => `"${l}"`).join(', ')
+    clauses.push(`Do NOT repeat any of these already-shown ideas: ${list}. Generate genuinely new, different suggestions.`)
+  }
+  return clauses.length > 0 ? '\n\n' + clauses.join('\n') : ''
+}
 
 // 2. Expand node
 app.post('/api/ai/expand-node', authMiddleware, route(async (req, res) => {
-  const { nodeLabel, mapContext, count = 5 } = req.body
+  const { nodeLabel, mapContext, count = 5, style, excludeLabels } = req.body
   if (!nodeLabel) return res.status(400).json({ error: 'nodeLabel is required' })
   const { provider, apiKey, model } = aiConfig(req)
-  const text = await callAI({
+  const refine = buildRefinementClauses(style, excludeLabels)
+  const result = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 512,
-    temperature: 0.8,
+    temperature: style === 'ambitious' ? 1.0 : 0.8,
+    system: buildSystem(
+      'You are a brainstorming partner helping the user develop their mind map. Use the map context to stay coherent with the user\'s thinking.',
+      mapContext,
+    ),
     messages: [{
       role: 'user',
-      content: `<mindmap>\n${formatMapContext(mapContext)}\n</mindmap>\n\nGenerate ${count} child node ideas for the node labeled: "${nodeLabel}"\n\nReturn ONLY a JSON array:\n[\n  { "label": "idea 1", "icon": "emoji" }\n]\nNo explanation, just JSON.`,
+      content: `Generate ${count} child node ideas for the node labeled "${nodeLabel}". Each idea should be concrete, concise (2-6 words), and non-redundant with existing children.${refine}`,
     }],
+    toolName: 'return_suggestions',
+    toolDescription: 'Return the list of suggested child nodes for the target node.',
+    schema: SUGGESTION_ARRAY_SCHEMA,
   })
-  const match = text.match(/\[[\s\S]*\]/)
-  res.json(match ? JSON.parse(match[0]) : [])
+  res.json(result.suggestions ?? [])
+}))
+
+// 2b. Expand node with user-supplied intent/prompt
+app.post('/api/ai/expand-node-with-prompt', authMiddleware, route(async (req, res) => {
+  const { nodeLabel, userPrompt, mapContext, count = 5, style, excludeLabels } = req.body
+  if (!nodeLabel) return res.status(400).json({ error: 'nodeLabel is required' })
+  if (!userPrompt?.trim()) return res.status(400).json({ error: 'userPrompt is required' })
+  const { provider, apiKey, model } = aiConfig(req)
+  const refine = buildRefinementClauses(style, excludeLabels)
+  const result = await callAIJSON({
+    provider, apiKey, model,
+    max_tokens: 512,
+    temperature: style === 'ambitious' ? 1.0 : 0.8,
+    system: buildSystem(
+      'You are a brainstorming partner helping the user develop their mind map. Use the map context to stay coherent with the user\'s thinking.',
+      mapContext,
+    ),
+    messages: [{
+      role: 'user',
+      content: `The user is focused on the node labeled "${nodeLabel}" and has this specific ask:\n\n"${userPrompt.trim()}"\n\nGenerate exactly ${count} child node ideas that directly address the user's ask while staying coherent with the surrounding map. Each idea should be concrete, concise (2-6 words), and add real value — no filler.${refine}`,
+    }],
+    toolName: 'return_suggestions',
+    toolDescription: 'Return the list of suggested child nodes tailored to the user\'s ask.',
+    schema: SUGGESTION_ARRAY_SCHEMA,
+  })
+  res.json(result.suggestions ?? [])
 }))
 
 // 3. Summarize (streaming)
@@ -715,22 +929,33 @@ app.post('/api/ai/summarize', authMiddleware, route(async (req, res) => {
     provider, apiKey, model,
     max_tokens: 1024,
     temperature: 0.5,
+    system: buildSystem(
+      'You write concise, flowing prose summaries of mind maps. Stay faithful to the map\'s structure and notes.',
+      mapContext,
+    ),
     messages: [{
       role: 'user',
-      content: `<mindmap>\n${formatMapContext(mapContext)}\n</mindmap>\n\nWrite a clear, concise summary in 2-4 paragraphs. Write in flowing prose, not as a list.`,
+      content: 'Write a clear, concise summary in 2-4 paragraphs. Write in flowing prose, not as a list.',
     }],
   })
 }))
 
 // 4. Brainstorm chat (streaming)
 app.post('/api/ai/chat', authMiddleware, route(async (req, res) => {
-  const { userMessage, mapContext, history = [] } = req.body
+  const { userMessage, mapContext, history = [], selectedNodeLabel } = req.body
   if (!userMessage) return res.status(400).json({ error: 'userMessage is required' })
   const { provider, apiKey, model } = aiConfig(req)
-  const system = `You are an AI assistant helping the user brainstorm and develop their mind map.\n\nCurrent mind map:\n${formatMapContext(mapContext)}\n\nWhen suggesting nodes to add, format as:\n**Add to "[parent node]":** idea 1, idea 2\n\nKeep responses concise and actionable.`
+
+  const focusClause = selectedNodeLabel
+    ? ` The user is currently focused on the node labeled "${selectedNodeLabel}" — bias your suggestions toward that area of the map unless the user's message clearly asks about something else.`
+    : ''
+
   await streamToRes(res, {
     provider, apiKey, model,
-    system,
+    system: buildSystem(
+      `You are an AI assistant helping the user brainstorm and develop their mind map.${focusClause} When suggesting nodes to add, format as: **Add to "[parent node]":** idea 1, idea 2. Use the EXACT node label from the map as the parent. Keep responses concise and actionable.`,
+      mapContext,
+    ),
     messages: [
       ...history.map((m) => ({ role: m.role, content: m.content })),
       { role: 'user', content: userMessage },
@@ -745,17 +970,131 @@ app.post('/api/ai/connections', authMiddleware, route(async (req, res) => {
   const { mapContext } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
   const { provider, apiKey, model } = aiConfig(req)
-  const text = await callAI({
+  const result = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 512,
     temperature: 0.6,
+    system: buildSystem(
+      'You find non-obvious connections between nodes in the user\'s mind map. Use exact ids from the map when referring to nodes.',
+      mapContext,
+      { includeIds: true },
+    ),
     messages: [{
       role: 'user',
-      content: `<mindmap>\n${formatMapContext(mapContext)}\n</mindmap>\n\nIdentify 3-5 non-obvious connections between nodes NOT already connected.\n\nReturn ONLY a JSON array:\n[\n  { "sourceId": "id", "targetId": "id", "reason": "explanation" }\n]\nUse exact node ids. No explanation, just JSON.`,
+      content: 'Identify 3-5 non-obvious connections between nodes that are NOT already connected in the map. Each connection needs a short reason explaining why the pair matters.',
+    }],
+    toolName: 'return_connections',
+    toolDescription: 'Return the list of non-obvious cross-links between existing nodes.',
+    schema: CONNECTIONS_SCHEMA,
+  })
+  res.json(result.connections ?? [])
+}))
+
+// ─── Brainstorming primitives (streaming analysis) ──────────────────────────
+// Each endpoint streams prose analysis into the chat panel. Prompts instruct
+// the model to emit **Add to "X":** idea1, idea2 when suggesting additions,
+// which the client's ApplyChips parser turns into one-click buttons.
+
+const ADDITION_FORMAT_NOTE =
+  'When you recommend adding nodes, format each addition on a SINGLE line as: **Add to "[exact parent node label]":** idea 1, idea 2, idea 3. Use exact labels from the map. The portion after the marker must be a plain comma-separated list of 2-6 word labels — no quotes, no parentheticals, no descriptions, no bullet points, no ids. Put any prose explanation on separate lines before or after. Omit this pattern when you are not recommending additions.'
+
+// 7. Challenge assumptions (streaming)
+app.post('/api/ai/challenge', authMiddleware, route(async (req, res) => {
+  const { mapContext, selectedNodeLabel } = req.body
+  if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
+  const { provider, apiKey, model } = aiConfig(req)
+  const scope = selectedNodeLabel
+    ? `the "${selectedNodeLabel}" branch specifically`
+    : 'this mind map as a whole'
+  await streamToRes(res, {
+    provider, apiKey, model,
+    max_tokens: 1024,
+    temperature: 0.7,
+    system: buildSystem(
+      `You are a rigorous thinking partner. Your job is to poke holes — identify weak assumptions, unstated dependencies, circular reasoning, missing counter-evidence, and places the user is being too optimistic or too narrow. Be candid but constructive. ${ADDITION_FORMAT_NOTE}`,
+      mapContext,
+    ),
+    messages: [{
+      role: 'user',
+      content: `Identify 3-5 of the weakest assumptions or blind spots in ${scope}. For each, explain in one sentence why it's risky and, where useful, suggest a concrete node the user should add to address it.`,
     }],
   })
-  const match = text.match(/\[[\s\S]*\]/)
-  res.json(match ? JSON.parse(match[0]) : [])
+}))
+
+// 8. Prioritize (streaming)
+app.post('/api/ai/prioritize', authMiddleware, route(async (req, res) => {
+  const { mapContext, selectedNodeLabel } = req.body
+  if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
+  const { provider, apiKey, model } = aiConfig(req)
+  const scope = selectedNodeLabel
+    ? `the "${selectedNodeLabel}" branch`
+    : 'this mind map'
+  await streamToRes(res, {
+    provider, apiKey, model,
+    max_tokens: 1024,
+    temperature: 0.5,
+    system: buildSystem(
+      `You are a decisive advisor who helps the user focus. You rank ideas by impact and effort, name what to do first, and are willing to call out low-value items. ${ADDITION_FORMAT_NOTE}`,
+      mapContext,
+    ),
+    messages: [{
+      role: 'user',
+      content: `Pick the top 3 items in ${scope} the user should tackle first. For each, give a one-line rationale (impact and why it's the right next step). Also call out 1-2 items that look low-value or could be deferred.`,
+    }],
+  })
+}))
+
+// 9. Find gaps (streaming, requires selected node)
+app.post('/api/ai/find-gaps', authMiddleware, route(async (req, res) => {
+  const { mapContext, nodeLabel } = req.body
+  if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
+  if (!nodeLabel) return res.status(400).json({ error: 'nodeLabel is required' })
+  const { provider, apiKey, model } = aiConfig(req)
+  await streamToRes(res, {
+    provider, apiKey, model,
+    max_tokens: 768,
+    temperature: 0.7,
+    system: buildSystem(
+      `You find OBVIOUS gaps a complete thinker would have covered. Focus on sub-topics the user has clearly missed, not creative new ideas. Be blunt about what's missing. ${ADDITION_FORMAT_NOTE}`,
+      mapContext,
+    ),
+    messages: [{
+      role: 'user',
+      content: `Look at the "${nodeLabel}" node and its current children in the map. Name 3-5 obvious sub-topics a thorough treatment of "${nodeLabel}" would include but the user has not yet added. Then format them as additions to "${nodeLabel}".`,
+    }],
+  })
+}))
+
+// 10. Compress taxonomy (streaming, requires selected node)
+app.post('/api/ai/compress', authMiddleware, route(async (req, res) => {
+  const { mapContext, nodeLabel } = req.body
+  if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
+  if (!nodeLabel) return res.status(400).json({ error: 'nodeLabel is required' })
+  const { provider, apiKey, model } = aiConfig(req)
+  await streamToRes(res, {
+    provider, apiKey, model,
+    max_tokens: 1024,
+    temperature: 0.4,
+    system: buildSystem(
+      `You help the user simplify overgrown branches by proposing umbrella categories that group related children. Keep your prose brief — the value is in the umbrella names, not long explanations. ${ADDITION_FORMAT_NOTE}`,
+      mapContext,
+    ),
+    messages: [{
+      role: 'user',
+      content: `The "${nodeLabel}" branch feels overgrown. Propose 2-4 umbrella category names that would regroup its children. Respond in this exact shape and nothing else:
+
+Brief 1-2 sentence summary of how you're regrouping.
+
+**Add to "${nodeLabel}":** Umbrella1, Umbrella2, Umbrella3
+
+Optionally, a 1-line note per umbrella explaining which existing children it would absorb (just labels, no ids, no quoted phrases, no long descriptions).
+
+Rules:
+- The umbrella names must be short (2-4 words each), comma-separated on a single line after the Add-to marker.
+- Do not put prose, bullets, colons, or descriptions on the Add-to line — only the umbrella names.
+- Do not repeat node ids anywhere in your answer.`,
+    }],
+  })
 }))
 
 // 6. Write from map (streaming)
@@ -772,9 +1111,13 @@ app.post('/api/ai/write', authMiddleware, route(async (req, res) => {
     provider, apiKey, model,
     max_tokens: 2048,
     temperature: 0.6,
+    system: buildSystem(
+      'You turn mind maps into polished written content. Use the map structure as your content guide.',
+      mapContext,
+    ),
     messages: [{
       role: 'user',
-      content: `<mindmap>\n${formatMapContext(mapContext)}\n</mindmap>\n\n${instructions[format] || instructions.essay}\n\nUse the mind map structure as your content guide.`,
+      content: instructions[format] || instructions.essay,
     }],
   })
 }))

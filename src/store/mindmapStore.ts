@@ -22,6 +22,29 @@ import {
 const DEFAULT_ROOT_COLOR = '#6366f1'
 const MAX_HISTORY = 50
 
+// Distinct, accessible colors used to differentiate top-level branches off the root.
+// Sub-branches inherit their parent's color so each major branch stays visually unified.
+export const BRANCH_PALETTE = [
+  '#6366f1', // indigo
+  '#10b981', // emerald
+  '#f59e0b', // amber
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#8b5cf6', // violet
+  '#ef4444', // red
+  '#84cc16', // lime
+]
+
+// Pick the next unused branch color among the parent's existing children.
+// Cycles through the palette once all distinct colors are taken.
+export function pickBranchColor(siblingColors: string[]): string {
+  const used = new Set(siblingColors)
+  for (const c of BRANCH_PALETTE) {
+    if (!used.has(c)) return c
+  }
+  return BRANCH_PALETTE[siblingColors.length % BRANCH_PALETTE.length]
+}
+
 export function createDefaultMapData(): { id: string; title: string; nodes: MindMapNode[]; edges: MindMapEdge[] } {
   const rootId = uuidv4()
   return {
@@ -83,6 +106,7 @@ interface MindMapStore {
   addNodeAtPosition: (parentId: string | null, position: { x: number; y: number }, label?: string) => string
   addSiblingNode: (nodeId: string, label?: string) => string
   deleteNode: (nodeId: string) => void
+  deleteEdges: (edgeIds: string[]) => void
   updateNodeLabel: (nodeId: string, label: string) => void
   updateNodeColor: (nodeId: string, color: string) => void
   updateNodeIcon: (nodeId: string, icon: string) => void
@@ -92,10 +116,11 @@ interface MindMapStore {
   toggleNodeCollapsed: (nodeId: string) => void
   setNodeEditing: (nodeId: string, editing: boolean) => void
   moveNode: (nodeId: string, x: number, y: number) => void
+  reparentNode: (nodeId: string, newParentId: string) => boolean
 
   // ── Layout ────────────────────────────────────────────────────────────────
   redistributeChildren: (parentId: string) => void
-  autoLayout: () => void
+  autoLayout: (opts?: { skipHistory?: boolean; skipVersionBump?: boolean }) => void
 
   // ── Bulk AI operations ────────────────────────────────────────────────────
   addAINodes: (parentId: string, labels: string[], colors?: string[]) => void
@@ -135,8 +160,17 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
 
   // ── Active map management ─────────────────────────────────────────────────
 
-  loadMap: ({ id, nodes, edges }) =>
-    set({ activeMapId: id, nodes, edges, history: [], historyIndex: -1 }),
+  loadMap: ({ id, nodes, edges }) => {
+    // Backfill explicit source/target handle IDs on legacy edges so React Flow
+    // doesn't auto-pick a different handle per child (which causes inconsistent
+    // routing — e.g. one sibling edge entering the top, others entering the left).
+    const normalizedEdges = edges.map((e) => ({
+      ...e,
+      sourceHandle: e.sourceHandle ?? 'right',
+      targetHandle: e.targetHandle ?? 'left',
+    }))
+    set({ activeMapId: id, nodes, edges: normalizedEdges, history: [], historyIndex: -1 })
+  },
 
   // ── Getters ───────────────────────────────────────────────────────────────
 
@@ -164,6 +198,7 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
         children: childrenMap.get(n.id) ?? [],
         color: n.data.color,
         checked: n.data.checked,
+        notes: n.data.notes,
       })),
       edges: edges.map((e) => ({ source: e.source, target: e.target })),
     }
@@ -213,7 +248,17 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       const parent = nodes.find((n) => n.id === parentId)
       if (parent) {
         level = parent.data.level + 1
-        color = parent.data.color
+        // Level-1 children (direct children of the root) get a fresh branch color.
+        // Deeper descendants inherit the parent's color so each branch stays unified.
+        if (parent.data.level === 0) {
+          const siblingIds = edges.filter((e) => e.source === parentId).map((e) => e.target)
+          const siblingColors = siblingIds
+            .map((sid) => nodes.find((n) => n.id === sid)?.data.color)
+            .filter((c): c is string => Boolean(c))
+          color = pickBranchColor(siblingColors)
+        } else {
+          color = parent.data.color
+        }
         const hGap = level === 1 ? 230 : 190
         position = {
           x: parent.position.x + hGap,
@@ -234,6 +279,8 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
           id: `e-${parentId}-${newId}`,
           source: parentId,
           target: newId,
+          sourceHandle: 'right',
+          targetHandle: 'left',
           type: 'custom',
           style: { stroke: color, strokeWidth: 2.5 },
         }
@@ -244,7 +291,14 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       edges: newEdge ? [...state.edges, newEdge] : state.edges,
     }))
 
-    if (parentId) get().redistributeChildren(parentId)
+    // Run the same full-tree layout the layout button triggers. Defer one tick so
+    // React Flow has a chance to measure the new node's dimensions before layout.
+    if (parentId) {
+      // Run layout in the same tick as the add so React batches both set() calls
+      // into a single render — otherwise the new node briefly appears at its
+      // drop position, then jumps to its layout position (visible jerk).
+      get().autoLayout({ skipHistory: true, skipVersionBump: true })
+    }
     return newId
   },
 
@@ -261,9 +315,17 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       const parent = nodes.find((n) => n.id === parentId)
       if (parent) {
         level = parent.data.level + 1
-        color = parent.data.color
 
         const siblingIds = edges.filter((e) => e.source === parentId).map((e) => e.target)
+        if (parent.data.level === 0) {
+          const siblingColors = siblingIds
+            .map((sid) => nodes.find((n) => n.id === sid)?.data.color)
+            .filter((c): c is string => Boolean(c))
+          color = pickBranchColor(siblingColors)
+        } else {
+          color = parent.data.color
+        }
+
         const siblingX = siblingIds.length > 0
           ? nodes.find((n) => n.id === siblingIds[0])?.position.x
           : undefined
@@ -286,6 +348,8 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
           id: `e-${parentId}-${newId}`,
           source: parentId,
           target: newId,
+          sourceHandle: 'right',
+          targetHandle: 'left',
           type: 'custom',
           style: { stroke: color, strokeWidth: 2.5 },
         }
@@ -296,7 +360,12 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       edges: newEdge ? [...state.edges, newEdge] : state.edges,
     }))
 
-    if (parentId) get().redistributeChildren(parentId)
+    if (parentId) {
+      // Run layout in the same tick as the add so React batches both set() calls
+      // into a single render — otherwise the new node briefly appears at its
+      // drop position, then jumps to its layout position (visible jerk).
+      get().autoLayout({ skipHistory: true, skipVersionBump: true })
+    }
     return newId
   },
 
@@ -327,7 +396,18 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       edges: edges.filter((e) => !toDelete.has(e.source) && !toDelete.has(e.target)),
     })
 
-    if (parentId) get().redistributeChildren(parentId)
+    if (parentId) {
+      get().autoLayout({ skipHistory: true, skipVersionBump: true })
+    }
+  },
+
+  deleteEdges: (edgeIds) => {
+    if (edgeIds.length === 0) return
+    get().pushHistory()
+    const ids = new Set(edgeIds)
+    set((state) => ({
+      edges: state.edges.filter((e) => !ids.has(e.id)),
+    }))
   },
 
   // ── Auto-layout: evenly space all children of a node ─────────────────────
@@ -348,11 +428,20 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
     const MIN_SLOT = 48
     const BETWEEN = 18
 
+    // React Flow populates `height` on each node after measurement.
+    // Use it so multi-line / wrapped nodes reserve enough vertical space.
+    const nodeSlot = (id: string): number => {
+      const n = nodes.find((nd) => nd.id === id)
+      const measured = (n?.height as number | undefined) ?? 0
+      return Math.max(MIN_SLOT, measured)
+    }
+
     function requiredHeight(nodeId: string): number {
       const children = edges.filter((e) => e.source === nodeId).map((e) => e.target)
-      if (children.length === 0) return MIN_SLOT
-      const sum = children.reduce((acc, c) => acc + requiredHeight(c), 0)
-      return sum + BETWEEN * (children.length - 1)
+      const own = nodeSlot(nodeId)
+      if (children.length === 0) return own
+      const sum = children.reduce((acc, c) => acc + requiredHeight(c), 0) + BETWEEN * (children.length - 1)
+      return Math.max(sum, own)
     }
 
     const positions = new Map(nodes.map((n) => [n.id, { ...n.position }]))
@@ -365,16 +454,22 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
         (a, b) => (positions.get(a)?.y ?? 0) - (positions.get(b)?.y ?? 0)
       )
 
-      const parentY = positions.get(nodeId)?.y ?? 0
-      const heights = sorted.map(requiredHeight)
-      const totalHeight = heights.reduce((s, h) => s + h, 0) + BETWEEN * (sorted.length - 1)
+      // Center children around the parent's *visual* center (positions are top-left).
+      const parentTopY = positions.get(nodeId)?.y ?? 0
+      const parentCenterY = parentTopY + nodeSlot(nodeId) / 2
 
-      let curY = parentY - totalHeight / 2
+      const slots = sorted.map(requiredHeight)         // vertical room reserved per child
+      const visualHeights = sorted.map(nodeSlot)       // actual rendered height per child
+      const totalHeight = slots.reduce((s, h) => s + h, 0) + BETWEEN * (sorted.length - 1)
+
+      let curY = parentCenterY - totalHeight / 2
 
       sorted.forEach((childId, i) => {
-        const targetY = curY + heights[i] / 2
+        // Place child so its visual center sits at the slot's center.
+        const slotCenterY = curY + slots[i] / 2
+        const targetTopY = slotCenterY - visualHeights[i] / 2
         const currentY = positions.get(childId)?.y ?? 0
-        const dy = targetY - currentY
+        const dy = targetTopY - currentY
 
         if (Math.abs(dy) > 0.1) {
           const subtree: string[] = []
@@ -390,7 +485,7 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
           })
         }
 
-        curY += heights[i] + BETWEEN
+        curY += slots[i] + BETWEEN
         layoutChildren(childId)
       })
     }
@@ -410,15 +505,16 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
     }))
   },
 
-  autoLayout: () => {
+  autoLayout: (opts) => {
     const { nodes, edges } = get()
-    get().pushHistory()
+    if (!opts?.skipHistory) get().pushHistory()
 
     const hasParent = new Set(edges.map((e) => e.target))
     const rootNode = nodes.find((n) => !hasParent.has(n.id))
     if (!rootNode) return
 
-    const H_GAP = 230
+    const H_GAP = 110           // visible horizontal space between parent's right edge and child's left edge
+    const DEFAULT_WIDTH = 150   // fallback if React Flow hasn't measured a node yet
     const MIN_SLOT = 64
     const V_GAP = 24
 
@@ -428,24 +524,42 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       childrenOf.get(e.source)?.push(e.target)
     })
 
+    // Use React Flow's measured height so wrapped/multi-line nodes get enough room.
+    const nodeSlot = (id: string): number => {
+      const n = nodes.find((nd) => nd.id === id)
+      const measured = (n?.height as number | undefined) ?? 0
+      return Math.max(MIN_SLOT, measured)
+    }
+
+    const nodeWidth = (id: string): number => {
+      const n = nodes.find((nd) => nd.id === id)
+      return ((n?.width as number | undefined) ?? 0) || DEFAULT_WIDTH
+    }
+
     function subtreeHeight(id: string): number {
       const children = childrenOf.get(id) ?? []
-      if (children.length === 0) return MIN_SLOT
-      const total = children.reduce((acc, c) => acc + subtreeHeight(c), 0)
-      return total + V_GAP * (children.length - 1)
+      const own = nodeSlot(id)
+      if (children.length === 0) return own
+      const total = children.reduce((acc, c) => acc + subtreeHeight(c), 0) + V_GAP * (children.length - 1)
+      return Math.max(total, own)
     }
 
     const positions = new Map<string, { x: number; y: number }>()
-    function assign(id: string, x: number, centerY: number): void {
-      positions.set(id, { x, y: centerY })
+    // assign() takes the parent's *visual* center and stores the node's top-left position
+    // so React Flow renders it at the right spot. Children are placed past the
+    // parent's right edge so wide and narrow nodes both get a consistent visual gap.
+    function assign(id: string, x: number, visualCenterY: number): void {
+      const ownH = nodeSlot(id)
+      positions.set(id, { x, y: visualCenterY - ownH / 2 })
       const children = childrenOf.get(id) ?? []
       if (children.length === 0) return
-      const heights = children.map((c) => subtreeHeight(c))
-      const totalH = heights.reduce((a, h) => a + h, 0) + V_GAP * (children.length - 1)
-      let curY = centerY - totalH / 2
+      const childX = x + nodeWidth(id) + H_GAP
+      const slots = children.map((c) => subtreeHeight(c))
+      const totalH = slots.reduce((a, h) => a + h, 0) + V_GAP * (children.length - 1)
+      let curY = visualCenterY - totalH / 2
       children.forEach((childId, i) => {
-        assign(childId, x + H_GAP, curY + heights[i] / 2)
-        curY += heights[i] + V_GAP
+        assign(childId, childX, curY + slots[i] / 2)
+        curY += slots[i] + V_GAP
       })
     }
 
@@ -456,7 +570,10 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
         const pos = positions.get(n.id)
         return pos ? { ...n, position: pos } : n
       }),
-      layoutVersion: state.layoutVersion + 1,
+      // Skip the version bump when called from internal add/delete actions —
+      // those already trigger fitView via the nodes-length effect, and bumping
+      // here would cause two fitView animations to overlap.
+      layoutVersion: opts?.skipVersionBump ? state.layoutVersion : state.layoutVersion + 1,
     }))
   },
 
@@ -468,6 +585,12 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
         n.id === nodeId ? { ...n, data: { ...n.data, label } } : n
       ),
     }))
+    // After React Flow re-measures the node with its new (possibly wrapped) label,
+    // run the same full-tree layout the layout button uses — without bumping the
+    // version, so the user's current zoom/pan stays put.
+    setTimeout(() => {
+      get().autoLayout({ skipHistory: true, skipVersionBump: true })
+    }, 60)
   },
 
   updateNodeColor: (nodeId, color) => {
@@ -557,6 +680,88 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
     }))
   },
 
+  // Re-parent a node by removing its current incoming edge and connecting it
+  // under newParentId. Cascades level + branch color through the moved subtree.
+  // Returns true on success, false if the move is invalid (cycle, same parent,
+  // root node, missing nodes).
+  reparentNode: (nodeId, newParentId) => {
+    if (nodeId === newParentId) return false
+    const { nodes, edges } = get()
+    const node = nodes.find((n) => n.id === nodeId)
+    const newParent = nodes.find((n) => n.id === newParentId)
+    if (!node || !newParent) return false
+    if (node.data.level === 0) return false // root has no parent
+
+    // Walk subtree of nodeId — needed for cycle check + level/color cascade
+    const subtree = new Set<string>()
+    const stack = [nodeId]
+    while (stack.length > 0) {
+      const id = stack.pop()!
+      if (subtree.has(id)) continue
+      subtree.add(id)
+      edges.filter((e) => e.source === id).forEach((e) => stack.push(e.target))
+    }
+    if (subtree.has(newParentId)) return false // would create a cycle
+
+    const currentParentEdge = edges.find((e) => e.target === nodeId)
+    if (currentParentEdge?.source === newParentId) return false // already child
+
+    get().pushHistory()
+
+    const newLevel = newParent.data.level + 1
+    const levelDelta = newLevel - node.data.level
+
+    // New branch color: if reparenting under root, pick a fresh palette color;
+    // otherwise inherit the new parent's branch color.
+    let newBranchColor: string
+    if (newParent.data.level === 0) {
+      const siblingColors = edges
+        .filter((e) => e.source === newParentId && e.target !== nodeId)
+        .map((e) => nodes.find((n) => n.id === e.target)?.data.color)
+        .filter((c): c is string => Boolean(c))
+      newBranchColor = pickBranchColor(siblingColors)
+    } else {
+      newBranchColor = newParent.data.color
+    }
+
+    const oldBranchColor = node.data.color
+
+    const newEdge: MindMapEdge = {
+      id: `e-${newParentId}-${nodeId}`,
+      source: newParentId,
+      target: nodeId,
+      sourceHandle: 'right',
+      targetHandle: 'left',
+      type: 'custom',
+      style: { stroke: newBranchColor, strokeWidth: 2.5 },
+    }
+
+    set((state) => ({
+      nodes: state.nodes.map((n) => {
+        if (!subtree.has(n.id)) return n
+        const data = { ...n.data, level: n.data.level + levelDelta }
+        // Recolor only nodes that were following the old branch color — leave
+        // any node the user explicitly recolored alone.
+        if (n.data.color === oldBranchColor) data.color = newBranchColor
+        return { ...n, data }
+      }),
+      edges: [
+        ...state.edges
+          .filter((e) => e.target !== nodeId)
+          .map((e) => {
+            if (subtree.has(e.source) && e.style?.stroke === oldBranchColor) {
+              return { ...e, style: { ...e.style, stroke: newBranchColor } }
+            }
+            return e
+          }),
+        newEdge,
+      ],
+    }))
+
+    get().autoLayout({ skipHistory: true, skipVersionBump: true })
+    return true
+  },
+
   // ── Bulk AI operations ────────────────────────────────────────────────────
 
   addAINodes: (parentId, labels, colors) => {
@@ -577,9 +782,26 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
     const newNodes: MindMapNode[] = []
     const newEdges: MindMapEdge[] = []
 
+    // When AI expands the root, give each new branch a distinct color from the palette.
+    // Otherwise inherit the parent's branch color so subtree nodes stay visually unified.
+    const isRootExpansion = parent.data.level === 0
+    const existingSiblingColors = isRootExpansion
+      ? siblingIds
+          .map((sid) => nodes.find((n) => n.id === sid)?.data.color)
+          .filter((c): c is string => Boolean(c))
+      : []
+
     labels.forEach((label, i) => {
       const newId = uuidv4()
-      const color = colors?.[i] ?? parent.data.color
+      let color: string
+      if (colors?.[i]) {
+        color = colors[i]
+      } else if (isRootExpansion) {
+        color = pickBranchColor(existingSiblingColors)
+        existingSiblingColors.push(color)
+      } else {
+        color = parent.data.color
+      }
 
       newNodes.push({
         id: newId,
@@ -592,6 +814,8 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
         id: `e-${parentId}-${newId}`,
         source: parentId,
         target: newId,
+        sourceHandle: 'right',
+        targetHandle: 'left',
         type: 'custom',
         style: { stroke: color, strokeWidth: 2 },
       })
@@ -602,7 +826,7 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       edges: [...state.edges, ...newEdges],
     }))
 
-    get().redistributeChildren(parentId)
+    get().autoLayout({ skipHistory: true, skipVersionBump: true })
   },
 
   addAIEdges: (connections) => {

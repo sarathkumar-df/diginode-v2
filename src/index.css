@@ -199,6 +199,13 @@ html, body, #root {
   transition: opacity 0.3s;
 }
 
+/* Drop-target highlight while dragging another node onto this one */
+.mindmap-node.drop-target {
+  box-shadow: 0 0 0 3px var(--brand), var(--node-shadow-hover);
+  transform: scale(1.04);
+  z-index: 11;
+}
+
 /* ─── Node Label Editing ─────────────────────────────────────────────────── */
 
 .node-label-input {
@@ -206,12 +213,21 @@ html, body, #root {
   border: none;
   outline: none;
   width: 100%;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
   font-size: inherit;
   font-weight: inherit;
   color: inherit;
   text-align: center;
+  /* Match the view-mode span's `leading-snug` so wrapped lines occupy the same
+     vertical space and the node height doesn't change when entering edit mode. */
+  line-height: 1.375;
   resize: none;
+  overflow: hidden;
   min-width: 80px;
+  box-sizing: border-box;
+  display: block;
 }
 
 /* ─── Scrollbars ─────────────────────────────────────────────────────────── */

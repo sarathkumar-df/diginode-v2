@@ -59,18 +59,44 @@ function CustomEdgeComponent({
   const strokeWidth = (style?.strokeWidth as number) ?? 2.5
 
   return (
-    <path
-      id={id}
-      ref={pathRef}
-      d={path}
-      fill="none"
-      stroke={strokeColor}
-      strokeWidth={selected ? strokeWidth + 0.8 : strokeWidth}
-      strokeLinecap="round"
-      strokeOpacity={selected ? 1 : 0.85}
-      markerEnd={markerEnd}
-      style={{ cursor: 'pointer', ...style, stroke: strokeColor }}
-    />
+    <g>
+      {/* Invisible wide path — gives a generous hit area so the edge is easy to click */}
+      <path
+        d={path}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        strokeLinecap="round"
+        style={{ cursor: 'pointer' }}
+      />
+
+      {/* Selection halo — soft glow behind the line so selection is obvious at a glance */}
+      {selected && (
+        <path
+          d={path}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={strokeWidth + 10}
+          strokeLinecap="round"
+          strokeOpacity={0.22}
+          style={{ pointerEvents: 'none' }}
+        />
+      )}
+
+      {/* Visible edge */}
+      <path
+        id={id}
+        ref={pathRef}
+        d={path}
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth={selected ? strokeWidth + 2 : strokeWidth}
+        strokeLinecap="round"
+        strokeOpacity={selected ? 1 : 0.85}
+        markerEnd={markerEnd}
+        style={{ pointerEvents: 'none', ...style, stroke: strokeColor }}
+      />
+    </g>
   )
 }
 

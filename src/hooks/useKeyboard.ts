@@ -8,12 +8,14 @@ export function useKeyboard() {
     addNode,
     addSiblingNode,
     deleteNode,
+    deleteEdges,
     undo,
     redo,
   } = useMindMapStore()
 
   const {
     selectedNodeIds,
+    selectedEdgeIds,
     toggleSearch,
     toggleFocusMode,
   } = useUIStore()
@@ -61,7 +63,12 @@ export function useKeyboard() {
         case 'Backspace':
         case 'Delete':
           e.preventDefault()
-          if (selectedId) deleteNode(selectedId)
+          if (selectedEdgeIds.length > 0) {
+            deleteEdges(selectedEdgeIds)
+            useUIStore.getState().setSelectedEdges([])
+          } else if (selectedId) {
+            deleteNode(selectedId)
+          }
           break
 
         case 'f':
@@ -89,10 +96,17 @@ export function useKeyboard() {
             e.preventDefault()
             fitView({ duration: 400 })
             break
+
+          case 'k':
+            if (selectedNodeIds.length === 1) {
+              e.preventDefault()
+              window.dispatchEvent(new Event('digo:focus-ai-popover'))
+            }
+            break
         }
       }
     },
-    [selectedNodeIds, addNode, addSiblingNode, deleteNode, undo, redo, toggleSearch, toggleFocusMode, fitView]
+    [selectedNodeIds, selectedEdgeIds, addNode, addSiblingNode, deleteNode, deleteEdges, undo, redo, toggleSearch, toggleFocusMode, fitView]
   )
 
   useEffect(() => {

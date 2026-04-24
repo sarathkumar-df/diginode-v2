@@ -47,8 +47,8 @@ async function streamPost(
   })
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: 'Unknown error' }))
-    throw new Error(err.error ?? `HTTP ${response.status}`)
+    const err = await response.json().catch(() => null)
+    throw new Error(err?.error ?? `HTTP ${response.status} ${response.statusText || ''}`.trim())
   }
 
   const reader = response.body!.getReader()
@@ -87,8 +87,8 @@ async function jsonPost<T>(endpoint: string, body: unknown): Promise<T> {
   })
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: 'Unknown error' }))
-    throw new Error(err.error ?? `HTTP ${response.status}`)
+    const err = await response.json().catch(() => null)
+    throw new Error(err?.error ?? `HTTP ${response.status} ${response.statusText || ''}`.trim())
   }
 
   return response.json()
@@ -96,28 +96,51 @@ async function jsonPost<T>(endpoint: string, body: unknown): Promise<T> {
 
 // ─── AI Features ─────────────────────────────────────────────────────────────
 
-export async function generateMapFromText(
-  text: string,
-  onChunk: (text: string) => void,
-  signal?: AbortSignal
-): Promise<void> {
-  return streamPost('/generate-from-text', { text }, onChunk, signal)
+export interface GeneratedMapTree {
+  title: string
+  nodes: Array<{
+    label: string
+    icon?: string
+    color?: string
+    children?: Array<{
+      label: string
+      icon?: string
+      children?: Array<{ label: string; icon?: string }>
+    }>
+  }>
 }
 
-export async function generateMapFromTopic(
-  topic: string,
-  onChunk: (text: string) => void,
-  signal?: AbortSignal
-): Promise<void> {
-  return streamPost('/generate-map', { topic }, onChunk, signal)
+export async function generateMapFromText(text: string): Promise<GeneratedMapTree> {
+  return jsonPost('/generate-from-text', { text })
+}
+
+export async function generateMapFromTopic(topic: string): Promise<GeneratedMapTree> {
+  return jsonPost('/generate-map', { topic })
+}
+
+export type ExpandStyle = 'concrete' | 'ambitious'
+
+export interface ExpandOptions {
+  count?: number
+  style?: ExpandStyle
+  excludeLabels?: string[]
 }
 
 export async function expandNode(
   nodeLabel: string,
   mapContext: MindMapExport,
-  count = 5
+  opts: ExpandOptions = {},
 ): Promise<AINodeSuggestion[]> {
-  return jsonPost('/expand-node', { nodeLabel, mapContext, count })
+  return jsonPost('/expand-node', { nodeLabel, mapContext, ...opts })
+}
+
+export async function expandNodeWithPrompt(
+  nodeLabel: string,
+  userPrompt: string,
+  mapContext: MindMapExport,
+  opts: ExpandOptions = {},
+): Promise<AINodeSuggestion[]> {
+  return jsonPost('/expand-node-with-prompt', { nodeLabel, userPrompt, mapContext, ...opts })
 }
 
 export async function summarizeMap(
@@ -133,9 +156,10 @@ export async function chatWithMap(
   mapContext: MindMapExport,
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
   onChunk: (text: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  selectedNodeLabel?: string,
 ): Promise<void> {
-  return streamPost('/chat', { userMessage, mapContext, history }, onChunk, signal)
+  return streamPost('/chat', { userMessage, mapContext, history, selectedNodeLabel }, onChunk, signal)
 }
 
 export async function findConnections(
@@ -378,4 +402,42 @@ export async function writeFromMap(
   signal?: AbortSignal
 ): Promise<void> {
   return streamPost('/write', { mapContext, format }, onChunk, signal)
+}
+
+// ─── Brainstorming primitives ───────────────────────────────────────────────
+
+export async function challengeMap(
+  mapContext: MindMapExport,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal,
+  selectedNodeLabel?: string,
+): Promise<void> {
+  return streamPost('/challenge', { mapContext, selectedNodeLabel }, onChunk, signal)
+}
+
+export async function prioritizeMap(
+  mapContext: MindMapExport,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal,
+  selectedNodeLabel?: string,
+): Promise<void> {
+  return streamPost('/prioritize', { mapContext, selectedNodeLabel }, onChunk, signal)
+}
+
+export async function findGaps(
+  nodeLabel: string,
+  mapContext: MindMapExport,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamPost('/find-gaps', { mapContext, nodeLabel }, onChunk, signal)
+}
+
+export async function compressBranch(
+  nodeLabel: string,
+  mapContext: MindMapExport,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamPost('/compress', { mapContext, nodeLabel }, onChunk, signal)
 }

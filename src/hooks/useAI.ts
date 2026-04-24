@@ -4,13 +4,35 @@ import { useMindMapStore } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
 import {
   expandNode,
+  expandNodeWithPrompt,
   summarizeMap,
   chatWithMap,
   findConnections,
   generateMapFromTopic,
   writeFromMap,
+  challengeMap,
+  prioritizeMap,
+  findGaps,
+  compressBranch,
+  ExpandStyle,
 } from '@/services/aiService'
-import { AIMessage, AINodeSuggestion } from '@/types'
+import { AIMessage, AIFeature, AINodeSuggestion, MindMapExport } from '@/types'
+
+export type RefineMode = 'more' | 'concrete' | 'ambitious' | 'regenerate'
+
+export type AnalysisMode = 'challenge' | 'prioritize' | 'find-gaps' | 'compress'
+
+// Runners that a primitive accepts. Each variant matches a shape of the
+// streaming service functions so runAnalysis below can dispatch uniformly.
+type AnalysisRunner =
+  | {
+      kind: 'map-wide'
+      fn: (ctx: MindMapExport, onChunk: (t: string) => void, signal: AbortSignal, sel?: string) => Promise<void>
+    }
+  | {
+      kind: 'node-scoped'
+      fn: (nodeLabel: string, ctx: MindMapExport, onChunk: (t: string) => void, signal: AbortSignal) => Promise<void>
+    }
 
 export function useAI() {
   const { exportMap, addAINodes, addAIEdges } = useMindMapStore()
@@ -23,6 +45,8 @@ export function useAI() {
     aiMessages,
     rightPanelOpen,
     toggleRightPanel,
+    setExpandResult,
+    appendExpandSuggestions,
   } = useUIStore()
 
   const abortRef = useRef<AbortController | null>(null)
@@ -36,34 +60,88 @@ export function useAI() {
     if (!rightPanelOpen) toggleRightPanel()
   }, [rightPanelOpen, toggleRightPanel])
 
-  // ── Fetch expand suggestions (returns list, does NOT add nodes) ───────────
+  // ── Fetch expand suggestions (publishes result to store) ──────────────────
 
-  const fetchExpandSuggestions = useCallback(async (): Promise<{
-    nodeId: string
-    nodeName: string
-    suggestions: AINodeSuggestion[]
-  } | null> => {
-    const nodeId = selectedNodeIds[0]
-    if (!nodeId) return null
+  const fetchExpandSuggestions = useCallback(async (
+    nodeIdOverride?: string,
+    userPrompt?: string,
+  ): Promise<boolean> => {
+    const nodeId = nodeIdOverride ?? selectedNodeIds[0]
+    if (!nodeId) return false
 
     const map = useMindMapStore.getState()
     const node = map.nodes.find((n) => n.id === nodeId)
-    if (!node) return null
+    if (!node) return false
 
     setAIStatus('loading')
     setAIError(null)
     ensurePanelOpen()
+    setExpandResult(null)
 
     try {
-      const suggestions = await expandNode(node.data.label, exportMap())
+      const suggestions = userPrompt?.trim()
+        ? await expandNodeWithPrompt(node.data.label, userPrompt.trim(), exportMap())
+        : await expandNode(node.data.label, exportMap())
       setAIStatus('idle')
-      return { nodeId, nodeName: node.data.label, suggestions }
+      if (suggestions.length > 0) {
+        setExpandResult({
+          nodeId,
+          nodeName: node.data.label,
+          userPrompt: userPrompt?.trim() || undefined,
+          suggestions,
+          added: [],
+        })
+      }
+      return true
     } catch (err: any) {
       setAIStatus('error')
       setAIError(err.message)
-      return null
+      return false
     }
-  }, [selectedNodeIds, exportMap, setAIStatus, setAIError, ensurePanelOpen])
+  }, [selectedNodeIds, exportMap, setAIStatus, setAIError, ensurePanelOpen, setExpandResult])
+
+  // ── Refine the current expand result (more / concrete / ambitious / regenerate) ──
+
+  const refineExpandSuggestions = useCallback(async (mode: RefineMode): Promise<boolean> => {
+    const current = useUIStore.getState().expandResult
+    if (!current) return false
+
+    setAIStatus('loading')
+    setAIError(null)
+
+    const excludeLabels = current.suggestions.map((s) => s.label)
+    const style: ExpandStyle | undefined =
+      mode === 'concrete' ? 'concrete' :
+      mode === 'ambitious' ? 'ambitious' :
+      undefined
+
+    try {
+      const suggestions = current.userPrompt
+        ? await expandNodeWithPrompt(current.nodeName, current.userPrompt, exportMap(), { style, excludeLabels })
+        : await expandNode(current.nodeName, exportMap(), { style, excludeLabels })
+      setAIStatus('idle')
+      if (suggestions.length === 0) return true
+
+      if (mode === 'more') {
+        // Append new ideas to the current list; existing added indices stay valid
+        appendExpandSuggestions(suggestions)
+      } else {
+        // Replace — style changed or user asked to regenerate
+        setExpandResult({
+          nodeId: current.nodeId,
+          nodeName: current.nodeName,
+          userPrompt: current.userPrompt,
+          suggestions,
+          added: [],
+        })
+      }
+      return true
+    } catch (err: any) {
+      setAIStatus('error')
+      setAIError(err.message)
+      return false
+    }
+  }, [exportMap, setAIStatus, setAIError, setExpandResult, appendExpandSuggestions])
 
   // ── Add a single suggestion node ──────────────────────────────────────────
 
@@ -143,6 +221,11 @@ export function useAI() {
       .slice(-10)
       .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
+    const selectedId = useUIStore.getState().selectedNodeIds[0]
+    const selectedNodeLabel = selectedId
+      ? useMindMapStore.getState().nodes.find((n) => n.id === selectedId)?.data.label
+      : undefined
+
     try {
       await chatWithMap(
         userText,
@@ -153,7 +236,8 @@ export function useAI() {
             (useUIStore.getState().aiMessages.at(-1)?.content ?? '') + chunk
           )
         },
-        abortRef.current.signal
+        abortRef.current.signal,
+        selectedNodeLabel,
       )
       setAIStatus('idle')
     } catch (err: any) {
@@ -193,6 +277,66 @@ export function useAI() {
       setAIError(err.message)
     }
   }, [exportMap, addAIEdges, addAIMessage, setAIStatus, setAIError, ensurePanelOpen])
+
+  // ── Brainstorming primitives (challenge / prioritize / find-gaps / compress) ──
+
+  const runAnalysis = useCallback(async (mode: AnalysisMode): Promise<void> => {
+    const selectedId = useUIStore.getState().selectedNodeIds[0]
+    const map = useMindMapStore.getState()
+    const selectedNode = selectedId ? map.nodes.find((n) => n.id === selectedId) : undefined
+    const selectedLabel = selectedNode?.data.label
+
+    // Primitives that require a selected node
+    if ((mode === 'find-gaps' || mode === 'compress') && !selectedLabel) {
+      setAIError('Select a node first')
+      setAIStatus('error')
+      return
+    }
+
+    const runners: Record<AnalysisMode, AnalysisRunner> = {
+      challenge: { kind: 'map-wide', fn: challengeMap },
+      prioritize: { kind: 'map-wide', fn: prioritizeMap },
+      'find-gaps': { kind: 'node-scoped', fn: findGaps },
+      compress: { kind: 'node-scoped', fn: compressBranch },
+    }
+
+    setAIStatus('streaming')
+    setAIError(null)
+    ensurePanelOpen()
+
+    const placeholderMsg: AIMessage = {
+      id: uuidv4(),
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      feature: mode as AIFeature,
+    }
+    addAIMessage(placeholderMsg)
+
+    abortRef.current = new AbortController()
+    const onChunk = (chunk: string) => {
+      updateLastAIMessage(
+        (useUIStore.getState().aiMessages.at(-1)?.content ?? '') + chunk
+      )
+    }
+
+    try {
+      const runner = runners[mode]
+      if (runner.kind === 'map-wide') {
+        await runner.fn(exportMap(), onChunk, abortRef.current.signal, selectedLabel)
+      } else {
+        await runner.fn(selectedLabel!, exportMap(), onChunk, abortRef.current.signal)
+      }
+      setAIStatus('idle')
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setAIStatus('error')
+        setAIError(err.message)
+      } else {
+        setAIStatus('idle')
+      }
+    }
+  }, [exportMap, addAIMessage, updateLastAIMessage, setAIStatus, setAIError, ensurePanelOpen])
 
   // ── Write from map ─────────────────────────────────────────────────────────
 
@@ -236,12 +380,14 @@ export function useAI() {
 
   return {
     fetchExpandSuggestions,
+    refineExpandSuggestions,
     addSuggestionNode,
     addAllSuggestions,
     summarize,
     sendChatMessage,
     discoverConnections,
     writeDocument,
+    runAnalysis,
     cancelCurrent,
   }
 }

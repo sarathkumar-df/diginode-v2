@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles, X, Loader2, Type, FileText } from 'lucide-react'
-import { useMindMapStore } from '@/store/mindmapStore'
+import { useMindMapStore, BRANCH_PALETTE } from '@/store/mindmapStore'
 import { generateMapFromTopic, generateMapFromText } from '@/services/aiService'
 import { v4 as uuidv4 } from 'uuid'
 import { MindMapNode, MindMapEdge } from '@/types'
@@ -17,7 +17,8 @@ function buildNodesFromTree(
   items: AINodeTree[],
   parentId: string,
   parentPos: { x: number; y: number },
-  level: number
+  level: number,
+  branchColor?: string,
 ): { nodes: MindMapNode[]; edges: MindMapEdge[] } {
   const nodes: MindMapNode[] = []
   const edges: MindMapEdge[] = []
@@ -25,7 +26,12 @@ function buildNodesFromTree(
 
   items.forEach((item, i) => {
     const id = uuidv4()
-    const color = item.color ?? '#54A0FF'
+    // Level-1 children of the root each get a distinct palette color.
+    // Deeper descendants inherit the branch color that was passed down.
+    const color =
+      item.color ??
+      branchColor ??
+      (level === 1 ? BRANCH_PALETTE[i % BRANCH_PALETTE.length] : '#54A0FF')
     let x: number, y: number
 
     if (level === 1) {
@@ -55,12 +61,14 @@ function buildNodesFromTree(
       id: `e-${parentId}-${id}`,
       source: parentId,
       target: id,
+      sourceHandle: 'right',
+      targetHandle: 'left',
       type: 'custom',
       style: { stroke: color, strokeWidth: 2 },
     })
 
     if (item.children?.length) {
-      const sub = buildNodesFromTree(item.children, id, { x, y }, level + 1)
+      const sub = buildNodesFromTree(item.children, id, { x, y }, level + 1, color)
       nodes.push(...sub.nodes)
       edges.push(...sub.edges)
     }
@@ -126,18 +134,12 @@ export function GenerateMapModal({ open, onClose }: Props) {
     setLoading(true)
     setError(null)
 
-    let fullText = ''
     try {
-      if (isText) {
-        await generateMapFromText(input, (chunk) => { fullText += chunk })
-      } else {
-        await generateMapFromTopic(input, (chunk) => { fullText += chunk })
-      }
+      const parsed = isText
+        ? await generateMapFromText(input)
+        : await generateMapFromTopic(input)
 
-      const jsonMatch = fullText.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) throw new Error('Could not parse AI response. Try again.')
-
-      applyGeneratedMap(JSON.parse(jsonMatch[0]), isText ? 'Mind Map' : input)
+      applyGeneratedMap(parsed, isText ? 'Mind Map' : input)
       setTopic('')
       setPastedText('')
       handleClose()

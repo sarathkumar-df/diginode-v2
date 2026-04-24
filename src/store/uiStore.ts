@@ -1,5 +1,13 @@
 import { create } from 'zustand'
-import { Theme, AIMessage, AIStatus, SearchResult } from '@/types'
+import { Theme, AIMessage, AIStatus, SearchResult, AINodeSuggestion } from '@/types'
+
+export interface ExpandResult {
+  nodeId: string
+  nodeName: string
+  userPrompt?: string
+  suggestions: AINodeSuggestion[]
+  added: number[]
+}
 
 interface UIStore {
   // Theme
@@ -18,6 +26,10 @@ interface UIStore {
   setSelectedNodes: (ids: string[]) => void
   clearSelection: () => void
 
+  // Selected edges
+  selectedEdgeIds: string[]
+  setSelectedEdges: (ids: string[]) => void
+
   // Focus mode
   focusMode: boolean
   toggleFocusMode: () => void
@@ -34,6 +46,10 @@ interface UIStore {
   inspectorNodeId: string | null
   setInspectorNode: (id: string | null) => void
 
+  // Drag-to-reparent: id of the node currently hovered while dragging another node
+  dropTargetId: string | null
+  setDropTargetId: (id: string | null) => void
+
   // AI panel state
   aiMessages: AIMessage[]
   aiStatus: AIStatus
@@ -43,6 +59,13 @@ interface UIStore {
   setAIStatus: (status: AIStatus) => void
   setAIError: (error: string | null) => void
   clearAIMessages: () => void
+
+  // Expand-node suggestion result (shared between NodeAIPopover and RightSidebar)
+  expandResult: ExpandResult | null
+  setExpandResult: (result: ExpandResult | null) => void
+  appendExpandSuggestions: (suggestions: AINodeSuggestion[]) => void
+  markExpandSuggestionAdded: (index: number) => void
+  markAllExpandSuggestionsAdded: () => void
 
   // Minimap
   minimapVisible: boolean
@@ -77,7 +100,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   selectedNodeIds: [],
   setSelectedNodes: (ids) => set({ selectedNodeIds: ids }),
-  clearSelection: () => set({ selectedNodeIds: [] }),
+  clearSelection: () => set({ selectedNodeIds: [], selectedEdgeIds: [] }),
+
+  selectedEdgeIds: [],
+  setSelectedEdges: (ids) => set({ selectedEdgeIds: ids }),
 
   focusMode: false,
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
@@ -92,6 +118,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
   inspectorNodeId: null,
   setInspectorNode: (id) => set({ inspectorNodeId: id }),
 
+  dropTargetId: null,
+  setDropTargetId: (id) => set({ dropTargetId: id }),
+
   aiMessages: [],
   aiStatus: 'idle',
   aiError: null,
@@ -104,6 +133,32 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setAIStatus: (status) => set({ aiStatus: status }),
   setAIError: (error) => set({ aiError: error }),
   clearAIMessages: () => set({ aiMessages: [], aiError: null }),
+
+  expandResult: null,
+  setExpandResult: (result) => set({ expandResult: result }),
+  appendExpandSuggestions: (suggestions) => set((s) => {
+    if (!s.expandResult) return {}
+    return {
+      expandResult: {
+        ...s.expandResult,
+        suggestions: [...s.expandResult.suggestions, ...suggestions],
+      },
+    }
+  }),
+  markExpandSuggestionAdded: (index) => set((s) => {
+    if (!s.expandResult) return {}
+    if (s.expandResult.added.includes(index)) return {}
+    return { expandResult: { ...s.expandResult, added: [...s.expandResult.added, index] } }
+  }),
+  markAllExpandSuggestionsAdded: () => set((s) => {
+    if (!s.expandResult) return {}
+    return {
+      expandResult: {
+        ...s.expandResult,
+        added: s.expandResult.suggestions.map((_, i) => i),
+      },
+    }
+  }),
 
   minimapVisible: true,
   toggleMinimap: () => set((s) => ({ minimapVisible: !s.minimapVisible })),

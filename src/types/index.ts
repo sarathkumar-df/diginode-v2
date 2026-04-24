@@ -77,6 +77,10 @@ export type AIFeature =
   | 'brainstorm'
   | 'find-connections'
   | 'write-from-map'
+  | 'challenge'
+  | 'prioritize'
+  | 'find-gaps'
+  | 'compress'
 
 export interface AIMessage {
   id: string
@@ -117,6 +121,7 @@ export interface MindMapExport {
     children: string[]
     color: string
     checked?: boolean
+    notes?: string
   }>
   edges: Array<{ source: string; target: string }>
 }

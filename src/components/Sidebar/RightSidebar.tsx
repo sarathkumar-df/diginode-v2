@@ -1,13 +1,14 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, FileText, PenLine, Wand2,
   RefreshCw, X, Send, StopCircle, Plus, Check, CheckCheck,
-  ChevronRight,
+  ChevronRight, Quote, Zap, Target, Flame,
+  ShieldAlert, ListOrdered, Scan, Shrink, Search as SearchIcon,
 } from 'lucide-react'
 import { useUIStore } from '@/store/uiStore'
-import { useAI } from '@/hooks/useAI'
-import { AINodeSuggestion } from '@/types'
+import { useMindMapStore } from '@/store/mindmapStore'
+import { useAI, RefineMode, AnalysisMode } from '@/hooks/useAI'
 
 function ThinkingIndicator() {
   return (
@@ -28,52 +29,40 @@ const PROMPT_CHIPS = [
 ]
 
 export function RightSidebar() {
-  const { rightPanelOpen, toggleRightPanel, aiMessages, aiStatus, aiError, clearAIMessages } = useUIStore()
+  const {
+    rightPanelOpen, toggleRightPanel, aiMessages, aiStatus, aiError, clearAIMessages,
+    expandResult, markExpandSuggestionAdded, markAllExpandSuggestionsAdded,
+    selectedNodeIds,
+  } = useUIStore()
   const {
     sendChatMessage, summarize, discoverConnections, writeDocument,
-    cancelCurrent, fetchExpandSuggestions, addSuggestionNode, addAllSuggestions,
+    cancelCurrent, fetchExpandSuggestions, refineExpandSuggestions,
+    addSuggestionNode, addAllSuggestions, runAnalysis,
   } = useAI()
+  const hasSelectedNode = selectedNodeIds.length === 1
 
   const [tab, setTab] = useState<AITab>('tools')
   const [input, setInput] = useState('')
   const [writeFormat, setWriteFormat] = useState<'essay' | 'outline' | 'bullets'>('essay')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const [expandResult, setExpandResult] = useState<{
-    nodeId: string
-    nodeName: string
-    suggestions: AINodeSuggestion[]
-    added: Set<number>
-  } | null>(null)
-
-  const handleExpand = useCallback(async () => {
-    setExpandResult(null)
-    const result = await fetchExpandSuggestions()
-    if (result && result.suggestions.length > 0) {
-      setExpandResult({ ...result, added: new Set() })
-    }
+  const handleExpand = useCallback(() => {
+    fetchExpandSuggestions()
   }, [fetchExpandSuggestions])
 
   const handleAddOne = useCallback((idx: number) => {
     if (!expandResult) return
     addSuggestionNode(expandResult.nodeId, expandResult.suggestions[idx])
-    setExpandResult((prev) => {
-      if (!prev) return prev
-      const added = new Set(prev.added)
-      added.add(idx)
-      return { ...prev, added }
-    })
-  }, [expandResult, addSuggestionNode])
+    markExpandSuggestionAdded(idx)
+  }, [expandResult, addSuggestionNode, markExpandSuggestionAdded])
 
   const handleAddAll = useCallback(() => {
     if (!expandResult) return
-    const remaining = expandResult.suggestions.filter((_, i) => !expandResult.added.has(i))
+    const addedSet = new Set(expandResult.added)
+    const remaining = expandResult.suggestions.filter((_, i) => !addedSet.has(i))
     if (remaining.length > 0) addAllSuggestions(expandResult.nodeId, remaining)
-    setExpandResult((prev) => {
-      if (!prev) return prev
-      return { ...prev, added: new Set(prev.suggestions.map((_, i) => i)) }
-    })
-  }, [expandResult, addAllSuggestions])
+    markAllExpandSuggestionsAdded()
+  }, [expandResult, addAllSuggestions, markAllExpandSuggestionsAdded])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -93,7 +82,7 @@ export function RightSidebar() {
   }, [handleSend])
 
   const isBusy = aiStatus === 'streaming' || aiStatus === 'loading'
-  const allAdded = expandResult != null && expandResult.added.size === expandResult.suggestions.length
+  const allAdded = expandResult != null && expandResult.added.length === expandResult.suggestions.length
 
   return (
     <AnimatePresence>
@@ -201,6 +190,17 @@ export function RightSidebar() {
                           className="border-t pt-3"
                           style={{ borderColor: 'var(--panel-border)' }}
                         >
+                          {expandResult.userPrompt && (
+                            <div
+                              className="flex items-start gap-1.5 mb-2 px-2 py-1.5 rounded-md"
+                              style={{ background: 'var(--canvas-bg)', border: '1px solid var(--panel-border)' }}
+                            >
+                              <Quote size={10} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
+                              <span className="text-[11px] italic leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                                {expandResult.userPrompt}
+                              </span>
+                            </div>
+                          )}
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
                               {expandResult.suggestions.length} ideas for &ldquo;{expandResult.nodeName}&rdquo;
@@ -215,9 +215,13 @@ export function RightSidebar() {
                               {allAdded ? 'Done' : 'Add all'}
                             </button>
                           </div>
+                          <RefinementChips
+                            disabled={isBusy}
+                            onRefine={(mode) => refineExpandSuggestions(mode)}
+                          />
                           <div className="space-y-0.5">
                             {expandResult.suggestions.map((s, i) => {
-                              const isAdded = expandResult.added.has(i)
+                              const isAdded = expandResult.added.includes(i)
                               return (
                                 <motion.button
                                   key={i}
@@ -259,6 +263,21 @@ export function RightSidebar() {
                       </motion.div>
                     )}
                   </AnimatePresence>
+                </Section>
+
+                <Divider />
+
+                {/* Analyze */}
+                <Section>
+                  <SectionHeader icon={SearchIcon} title="Analyze" />
+                  <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                    Push your thinking — challenge, prioritize, fill gaps, or tighten.
+                  </p>
+                  <AnalyzeGrid
+                    hasSelectedNode={hasSelectedNode}
+                    busy={isBusy}
+                    onRun={(mode) => { runAnalysis(mode); setTab('chat') }}
+                  />
                 </Section>
 
                 <Divider />
@@ -377,17 +396,22 @@ export function RightSidebar() {
                         <Sparkles size={10} style={{ color: 'var(--brand)' }} />
                       </div>
                     )}
-                    <div
-                      className={`max-w-[82%] rounded-xl px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap ${
-                        msg.role === 'user' ? 'rounded-br-sm' : 'rounded-bl-sm'
-                      }`}
-                      style={
-                        msg.role === 'user'
-                          ? { background: 'var(--brand)', color: 'white' }
-                          : { background: 'var(--canvas-bg)', color: 'var(--text-primary)', border: '1px solid var(--panel-border)' }
-                      }
-                    >
-                      {msg.content || (isBusy ? <ThinkingIndicator /> : null)}
+                    <div className={`flex flex-col gap-1.5 max-w-[82%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                      <div
+                        className={`rounded-xl px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap ${
+                          msg.role === 'user' ? 'rounded-br-sm' : 'rounded-bl-sm'
+                        }`}
+                        style={
+                          msg.role === 'user'
+                            ? { background: 'var(--brand)', color: 'white' }
+                            : { background: 'var(--canvas-bg)', color: 'var(--text-primary)', border: '1px solid var(--panel-border)' }
+                        }
+                      >
+                        {msg.content || (isBusy ? <ThinkingIndicator /> : null)}
+                      </div>
+                      {msg.role === 'assistant' && msg.content && (
+                        <ApplyChips content={msg.content} />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -517,5 +541,245 @@ function SecondaryButton({ children, onClick, loading }: {
         : children
       }
     </button>
+  )
+}
+
+/* ── Analyze grid (challenge / prioritize / find-gaps / compress) ──────────── */
+
+const ANALYZE_TILES: Array<{
+  mode: AnalysisMode
+  label: string
+  hint: string
+  icon: React.ElementType
+  requiresNode: boolean
+}> = [
+  { mode: 'challenge',  label: 'Challenge',  hint: 'Poke holes in weak assumptions',  icon: ShieldAlert, requiresNode: false },
+  { mode: 'prioritize', label: 'Prioritize', hint: 'What to tackle first',            icon: ListOrdered, requiresNode: false },
+  { mode: 'find-gaps',  label: 'Find gaps',  hint: 'Obvious sub-topics missing',      icon: Scan,        requiresNode: true },
+  { mode: 'compress',   label: 'Compress',   hint: 'Tighten an overgrown branch',     icon: Shrink,      requiresNode: true },
+]
+
+function AnalyzeGrid({
+  hasSelectedNode, busy, onRun,
+}: {
+  hasSelectedNode: boolean
+  busy: boolean
+  onRun: (mode: AnalysisMode) => void
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-1.5">
+      {ANALYZE_TILES.map(({ mode, label, hint, icon: Icon, requiresNode }) => {
+        const needsNode = requiresNode && !hasSelectedNode
+        const disabled = busy || needsNode
+        const title = needsNode ? `${hint} · select a node first` : hint
+        return (
+          <button
+            key={mode}
+            onClick={() => onRun(mode)}
+            disabled={disabled}
+            title={title}
+            className="flex flex-col items-start gap-1 p-2 rounded-lg text-left border transition-colors disabled:opacity-40 hover:border-indigo-400"
+            style={{
+              borderColor: 'var(--panel-border)',
+              background: 'var(--canvas-bg)',
+            }}
+          >
+            <div className="flex items-center gap-1.5 w-full">
+              <Icon size={11} style={{ color: 'var(--brand)' }} />
+              <span className="text-[11px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+                {label}
+              </span>
+            </div>
+            <span className="text-[10px] leading-tight" style={{ color: 'var(--text-muted)' }}>
+              {hint}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ── Refinement chips (5 more / concrete / ambitious / regenerate) ─────────── */
+
+const REFINE_CHIPS: Array<{ mode: RefineMode; label: string; icon: React.ElementType }> = [
+  { mode: 'more', label: '5 more', icon: Plus },
+  { mode: 'concrete', label: 'More concrete', icon: Target },
+  { mode: 'ambitious', label: 'More ambitious', icon: Flame },
+  { mode: 'regenerate', label: 'Regenerate', icon: Zap },
+]
+
+function RefinementChips({
+  disabled, onRefine,
+}: {
+  disabled: boolean
+  onRefine: (mode: RefineMode) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-1 mb-2">
+      {REFINE_CHIPS.map(({ mode, label, icon: Icon }) => (
+        <button
+          key={mode}
+          onClick={() => onRefine(mode)}
+          disabled={disabled}
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium border transition-colors disabled:opacity-40 hover:border-indigo-400"
+          style={{
+            borderColor: 'var(--panel-border)',
+            color: 'var(--text-secondary)',
+            background: 'var(--canvas-bg)',
+          }}
+        >
+          <Icon size={10} />
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ── Chat Apply chips ─────────────────────────────────────────────────────── */
+// Parses the **Add to "Parent":** idea1, idea2 pattern the chat system prompt
+// instructs the model to emit, and renders a one-click Apply chip per group.
+
+interface ApplyGroup {
+  parentLabel: string
+  labels: string[]
+  key: string
+}
+
+// Strip (uuid), (id: ...), surrounding quotes, bullet markers, and stray
+// punctuation from a single suggested label so chips never show model noise.
+const UUID_RE = /\(\s*(?:id:\s*)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\s*\)/gi
+
+function cleanLabel(raw: string): string {
+  return raw
+    .replace(UUID_RE, '')
+    .replace(/^[•*\-–—\s]+/, '')   // leading bullet / dash
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '') // wrapping quotes
+    .replace(/\.\s*$/, '')         // trailing period
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function parseApplyGroups(content: string): ApplyGroup[] {
+  const groups: ApplyGroup[] = []
+  // [ \t]* so whitespace after the marker does NOT cross newlines — we only
+  // want labels the model put on the same line as **Add to "X":**.
+  const re = /\*\*Add to "([^"]+)":\*\*[ \t]*([^\n]+)/g
+  let match: RegExpExecArray | null
+  let idx = 0
+  while ((match = re.exec(content)) !== null) {
+    const parentLabel = match[1].trim()
+    const labels = match[2]
+      .split(/[,;]/)
+      .map(cleanLabel)
+      .filter((l) => l.length > 0 && l.length <= 80) // drop empty + long prose lines
+    if (labels.length > 0) {
+      groups.push({ parentLabel, labels, key: `${idx}-${parentLabel}` })
+      idx += 1
+    }
+  }
+  return groups
+}
+
+function ApplyChips({ content }: { content: string }) {
+  const { addAINodes, nodes } = useMindMapStore()
+  const [addedItems, setAddedItems] = useState<Set<string>>(new Set())
+
+  const groups = useMemo(() => parseApplyGroups(content), [content])
+  if (groups.length === 0) return null
+
+  const itemKey = (g: ApplyGroup, i: number) => `${g.key}::${i}`
+
+  // Case-insensitive label match; prefer exact, fall back to startsWith
+  const findTarget = (parentLabel: string) =>
+    nodes.find((n) => n.data.label.toLowerCase() === parentLabel.toLowerCase())
+      ?? nodes.find((n) => n.data.label.toLowerCase().startsWith(parentLabel.toLowerCase()))
+
+  const handleAddOne = (g: ApplyGroup, i: number) => {
+    const target = findTarget(g.parentLabel)
+    if (!target) return
+    addAINodes(target.id, [g.labels[i]])
+    setAddedItems((prev) => {
+      const next = new Set(prev)
+      next.add(itemKey(g, i))
+      return next
+    })
+  }
+
+  const handleAddAll = (g: ApplyGroup) => {
+    const target = findTarget(g.parentLabel)
+    if (!target) return
+    const remaining: string[] = []
+    const remainingIndices: number[] = []
+    g.labels.forEach((label, i) => {
+      if (!addedItems.has(itemKey(g, i))) {
+        remaining.push(label)
+        remainingIndices.push(i)
+      }
+    })
+    if (remaining.length === 0) return
+    addAINodes(target.id, remaining)
+    setAddedItems((prev) => {
+      const next = new Set(prev)
+      remainingIndices.forEach((i) => next.add(itemKey(g, i)))
+      return next
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2 w-full">
+      {groups.map((g) => {
+        const allApplied = g.labels.every((_, i) => addedItems.has(itemKey(g, i)))
+        return (
+          <div
+            key={g.key}
+            className="rounded-lg border p-2"
+            style={{
+              background: 'var(--canvas-bg)',
+              borderColor: 'var(--panel-border)',
+            }}
+          >
+            <div className="flex items-center justify-between mb-1.5 gap-2">
+              <span className="text-[10.5px] font-medium truncate" style={{ color: 'var(--text-muted)' }}>
+                Add to &ldquo;{g.parentLabel}&rdquo;
+              </span>
+              <button
+                onClick={() => !allApplied && handleAddAll(g)}
+                disabled={allApplied}
+                className="flex items-center gap-0.5 text-[10.5px] font-medium whitespace-nowrap disabled:opacity-30"
+                style={{ color: 'var(--brand)' }}
+              >
+                <CheckCheck size={10} />
+                {allApplied ? 'Done' : 'Add all'}
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {g.labels.map((label, i) => {
+                const isAdded = addedItems.has(itemKey(g, i))
+                return (
+                  <button
+                    key={i}
+                    onClick={() => !isAdded && handleAddOne(g, i)}
+                    disabled={isAdded}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] border transition-colors disabled:cursor-default hover:border-indigo-400"
+                    style={{
+                      background: isAdded ? '#f0fdf4' : 'var(--panel-bg)',
+                      borderColor: isAdded ? '#bbf7d0' : 'var(--panel-border)',
+                      color: isAdded ? '#15803d' : 'var(--text-primary)',
+                    }}
+                  >
+                    {isAdded
+                      ? <Check size={9} style={{ color: '#22c55e' }} />
+                      : <Plus size={9} style={{ color: 'var(--brand)' }} />}
+                    <span>{label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }

@@ -29,6 +29,16 @@ function NodeContent({ id, data }: { id: string; data: MindMapNodeData }) {
     }
   }, [data.isEditing])
 
+  // Grow the textarea to fit its content so the node keeps the same height
+  // when toggling between view and edit mode (otherwise rows={1} would collapse it).
+  useEffect(() => {
+    if (!data.isEditing) return
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [data.isEditing, localLabel])
+
   const handleBlur = useCallback(() => {
     const trimmed = localLabel.trim()
     if (trimmed) updateNodeLabel(id, trimmed)
@@ -110,13 +120,14 @@ function NodeContent({ id, data }: { id: string; data: MindMapNodeData }) {
 
 function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>) {
   const { toggleNodeCollapsed } = useMindMapStore()
-  const { focusMode, selectedNodeIds, setInspectorNode, presentationMode, presentationOrder, presentationIndex } = useUIStore()
+  const { focusMode, selectedNodeIds, setInspectorNode, presentationMode, presentationOrder, presentationIndex, dropTargetId } = useUIStore()
   const isSelected = selected || selectedNodeIds.includes(id)
   const isRoot = data.level === 0
   const shapeClass = SHAPE_CLASSES[data.shape ?? 'rounded']
 
   const isFocusedOut = focusMode && !isSelected
   const isPresentationDimmed = presentationMode && presentationOrder[presentationIndex] !== id
+  const isDropTarget = dropTargetId === id
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -138,7 +149,7 @@ function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>
         damping: 28,
         opacity: { duration: 0.18 },
       }}
-      className={`mindmap-node ${shapeClass} ${isSelected ? 'selected' : ''} ${(isFocusedOut || isPresentationDimmed) ? 'focused-out' : ''}`}
+      className={`mindmap-node ${shapeClass} ${isSelected ? 'selected' : ''} ${(isFocusedOut || isPresentationDimmed) ? 'focused-out' : ''} ${isDropTarget ? 'drop-target' : ''}`}
       style={{
         minWidth: isRoot ? 120 : 90,
         maxWidth: isRoot ? 200 : 160,
