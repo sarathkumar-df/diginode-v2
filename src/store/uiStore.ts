@@ -163,7 +163,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
     }
   }),
 
-  minimapVisible: true,
+  minimapVisible: false,
   toggleMinimap: () => set((s) => ({ minimapVisible: !s.minimapVisible })),
 
   presentationMode: false,

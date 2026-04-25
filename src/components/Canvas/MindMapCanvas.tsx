@@ -75,15 +75,43 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
   const prevLayoutVersion = useRef(layoutVersion)
   useEffect(() => {
     if (layoutVersion > prevLayoutVersion.current) {
-      const id = setTimeout(() => fitView({ duration: 500, padding: 0.25 }), 50)
+      const id = setTimeout(() => fitView({ duration: 500, padding: 0.25, maxZoom: 0.9 }), 50)
       prevLayoutVersion.current = layoutVersion
       return () => clearTimeout(id)
     }
     prevLayoutVersion.current = layoutVersion
   }, [layoutVersion, fitView])
 
-  // Track which node a connection drag started from
-  const connectSourceId = useRef<string | null>(null)
+  // Empty-map "type to start": when the only node is the placeholder root,
+  // a printable keystroke replaces "Central Topic" with whatever the user types
+  // and drops them straight into edit mode.
+  useEffect(() => {
+    if (readOnly) return
+
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key.length !== 1) return
+
+      const state = useMindMapStore.getState()
+      if (state.nodes.length !== 1) return
+      const root = state.nodes[0]
+      if (root.data?.label !== 'Central Topic' || root.data?.isEditing) return
+
+      e.preventDefault()
+      state.startTypingFromEmpty(root.id, e.key)
+      useUIStore.getState().setSelectedNodes([root.id])
+    }
+
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [readOnly])
+
+  // Track which node a connection drag started from + the pointer position at
+  // mousedown, so we can distinguish a real drag from a plain click on the "+"
+  // source handle (click → add child via auto-layout, drag → drop on pane).
+  const connectSource = useRef<{ id: string; x: number; y: number } | null>(null)
 
   // Drag-to-reparent: while a node is being dragged, we precompute the set of
   // invalid drop targets (the node itself + every descendant) so we can skip
@@ -123,19 +151,47 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
     [setSelectedNodes, setSelectedEdges, setInspectorNode]
   )
 
-  // Record which node the drag started from
-  const handleConnectStart: OnConnectStart = useCallback((_, { nodeId }) => {
-    connectSourceId.current = nodeId ?? null
+  // Record which node the drag started from + the initial pointer position
+  const handleConnectStart: OnConnectStart = useCallback((event, { nodeId }) => {
+    if (!nodeId) {
+      connectSource.current = null
+      return
+    }
+    const e = event as React.MouseEvent | React.TouchEvent
+    const x = 'touches' in e ? e.touches[0]?.clientX ?? 0 : e.clientX
+    const y = 'touches' in e ? e.touches[0]?.clientY ?? 0 : e.clientY
+    connectSource.current = { id: nodeId, x, y }
   }, [])
 
-  // When the drag ends — if it landed on the canvas (not a node/handle), create a new node
+  // When the drag ends — short distance = click on "+" → add child via auto-layout;
+  // longer distance dropped on the pane → add child at that position.
   const handleConnectEnd: OnConnectEnd = useCallback(
     (event) => {
-      const sourceId = connectSourceId.current
-      connectSourceId.current = null
-      if (!sourceId) return
+      const start = connectSource.current
+      connectSource.current = null
+      if (!start) return
 
-      // Only create a node if dropped on the pane, not on an existing node
+      const clientEvent = event as MouseEvent | TouchEvent
+      const clientX = 'changedTouches' in clientEvent
+        ? clientEvent.changedTouches[0]?.clientX ?? 0
+        : (clientEvent as MouseEvent).clientX
+      const clientY = 'changedTouches' in clientEvent
+        ? clientEvent.changedTouches[0]?.clientY ?? 0
+        : (clientEvent as MouseEvent).clientY
+
+      const dx = clientX - start.x
+      const dy = clientY - start.y
+      const movedFar = Math.hypot(dx, dy) > 6
+
+      // Click (no meaningful drag) → create child at default auto-layout position
+      if (!movedFar) {
+        const newId = addNode(start.id)
+        setSelectedNodes([newId])
+        setInspectorNode(newId)
+        return
+      }
+
+      // Dragged — only create if released on empty pane (not on another node/handle)
       const target = event.target as Element
       const droppedOnPane =
         target.classList.contains('react-flow__pane') ||
@@ -145,24 +201,12 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
 
       if (!droppedOnPane) return
 
-      // Convert screen coords to flow coords
-      const clientEvent = event as MouseEvent | TouchEvent
-      const clientX = 'touches' in clientEvent
-        ? clientEvent.touches[0]?.clientX ?? 0
-        : (clientEvent as MouseEvent).clientX
-      const clientY = 'touches' in clientEvent
-        ? clientEvent.touches[0]?.clientY ?? 0
-        : (clientEvent as MouseEvent).clientY
-
       const position = screenToFlowPosition({ x: clientX, y: clientY })
-
-      const newId = addNodeAtPosition(sourceId, position)
-
-      // Select the new node
+      const newId = addNodeAtPosition(start.id, position)
       setSelectedNodes([newId])
       setInspectorNode(newId)
     },
-    [screenToFlowPosition, addNodeAtPosition, setSelectedNodes, setInspectorNode]
+    [screenToFlowPosition, addNode, addNodeAtPosition, setSelectedNodes, setInspectorNode]
   )
 
   // ── Drag-to-reparent ───────────────────────────────────────────────────────
@@ -231,10 +275,10 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
         <div className="absolute bottom-28 left-0 right-0 flex justify-center pointer-events-none z-10">
           <div className="text-center select-none">
             <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
-              Click the root node to select it
+              Just start typing to name your central topic
             </p>
             <p className="text-xs" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>
-              Then press <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mx-0.5" style={{ background: 'var(--panel-border)' }}>Tab</kbd> to add a child node
+              Then select the node and press <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono mx-0.5" style={{ background: 'var(--panel-border)' }}>Tab</kbd> to add a child
               or drag from a handle to create connected nodes
             </p>
           </div>
@@ -257,7 +301,7 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
         edgeTypes={edgeTypes}
         selectionMode={SelectionMode.Partial}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ padding: 0.2, maxZoom: 0.9 }}
         minZoom={0.2}
         maxZoom={2.5}
         defaultEdgeOptions={{

@@ -75,6 +75,16 @@ function MapPageInner() {
               ? maps
               : [{ id: data.id, title: data.title, createdAt: data.createdAt, updatedAt: data.updatedAt }, ...maps]
           )
+          // Fresh placeholder map: drop the user straight into editing the root
+          // with the text selected, so typing replaces "Central Topic".
+          if (
+            data.permission === 'edit' &&
+            data.nodes.length === 1 &&
+            data.nodes[0].data?.label === 'Central Topic'
+          ) {
+            useMindMapStore.getState().setNodeEditing(data.nodes[0].id, true)
+            useUIStore.getState().setSelectedNodes([data.nodes[0].id])
+          }
         }
       } catch {
         if (!cancelled) {

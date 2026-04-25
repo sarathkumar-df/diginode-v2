@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hide the Liveblocks free-tier "Powered by Liveblocks" badge that the SDK
+ * injects into <body> with id="liveblocks-badge" when the project is on the
+ * free plan. Hidden by default; remove this rule on a paid plan if desired. */
+#liveblocks-badge {
+  display: none !important;
+}
+
 /* ─── CSS Custom Properties ─────────────────────────────────────────────── */
 /* Design tokens. Layered neutrals + monochrome shadows; brand color used
  * only for intentional accents. The indigo→violet gradient is reserved for

@@ -115,6 +115,7 @@ interface MindMapStore {
   toggleNodeChecked: (nodeId: string) => void
   toggleNodeCollapsed: (nodeId: string) => void
   setNodeEditing: (nodeId: string, editing: boolean) => void
+  startTypingFromEmpty: (nodeId: string, char: string) => void
   moveNode: (nodeId: string, x: number, y: number) => void
   reparentNode: (nodeId: string, newParentId: string) => boolean
 
@@ -670,7 +671,17 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
   setNodeEditing: (nodeId, editing) => {
     set((state) => ({
       nodes: state.nodes.map((n) =>
-        n.id === nodeId ? { ...n, data: { ...n.data, isEditing: editing } } : n
+        n.id === nodeId ? { ...n, data: { ...n.data, isEditing: editing, editCursorAtEnd: false } } : n
+      ),
+    }))
+  },
+
+  startTypingFromEmpty: (nodeId, char) => {
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === nodeId
+          ? { ...n, data: { ...n.data, label: char, isEditing: true, editCursorAtEnd: true } }
+          : n
       ),
     }))
   },

@@ -31,6 +31,7 @@ export interface MindMapNodeData {
   notes?: string
   level: number
   isEditing?: boolean
+  editCursorAtEnd?: boolean
   userMoved?: boolean
 }
 

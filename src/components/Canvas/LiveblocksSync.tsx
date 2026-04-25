@@ -72,6 +72,26 @@ export function LiveblocksSync({ mapId }: Props) {
   const storageLoadedRef = useRef(false)
   const syncTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
+  // Preserve transient UI flags (isEditing, editCursorAtEnd, label-while-typing)
+  // from the local nodes when applying a remote snapshot. These are local-only
+  // state — if a remote sync clobbers them, the user's textarea unmounts and
+  // any in-progress typed text is lost.
+  function mergeLocalEditState(remote: MindMapNode[], local: MindMapNode[]): MindMapNode[] {
+    return remote.map((rn) => {
+      const ln = local.find((n) => n.id === rn.id)
+      if (!ln?.data?.isEditing) return rn
+      return {
+        ...rn,
+        data: {
+          ...rn.data,
+          isEditing: true,
+          editCursorAtEnd: ln.data.editCursorAtEnd,
+          label: ln.data.label,
+        },
+      }
+    })
+  }
+
   // ── Liveblocks → Zustand ────────────────────────────────────────────────────
   useEffect(() => {
     if (!liveNodes || !liveEdges) return
@@ -91,8 +111,10 @@ export function LiveblocksSync({ mapId }: Props) {
       const localNodesJson = JSON.stringify(nodes)
       const localEdgesJson = JSON.stringify(edges)
       if (nodesJson !== localNodesJson || edgesJson !== localEdgesJson) {
-        // Another user was already editing — adopt the live state
-        loadMap({ id: mapId, nodes: nodesArr, edges: edgesArr })
+        // Another user was already editing — adopt the live state, but keep
+        // any local edit-in-progress flags so we don't yank an open textarea.
+        const merged = mergeLocalEditState(nodesArr, nodes)
+        loadMap({ id: mapId, nodes: merged, edges: edgesArr })
       }
       return
     }
@@ -103,7 +125,8 @@ export function LiveblocksSync({ mapId }: Props) {
     // Mark as synced BEFORE calling loadMap so the Zustand→Liveblocks effect skips it
     lastSyncedNodesRef.current = nodesJson
     lastSyncedEdgesRef.current = edgesJson
-    loadMap({ id: mapId, nodes: nodesArr, edges: edgesArr })
+    const merged = mergeLocalEditState(nodesArr, nodes)
+    loadMap({ id: mapId, nodes: merged, edges: edgesArr })
   }, [liveNodes, liveEdges]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Zustand → Liveblocks ────────────────────────────────────────────────────

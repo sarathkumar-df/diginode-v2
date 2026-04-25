@@ -19,15 +19,24 @@ function NodeContent({ id, data }: { id: string; data: MindMapNodeData }) {
   const [localLabel, setLocalLabel] = useState(data.label)
 
   useEffect(() => {
+    // Don't clobber the user's in-progress text if a remote/live sync delivers
+    // a stale label while they're typing — keep localLabel as the source of truth
+    // until they explicitly blur or escape.
+    if (data.isEditing) return
     setLocalLabel(data.label)
-  }, [data.label])
+  }, [data.label, data.isEditing])
 
   useEffect(() => {
     if (data.isEditing && inputRef.current) {
       inputRef.current.focus()
-      inputRef.current.select()
+      if (data.editCursorAtEnd) {
+        const end = inputRef.current.value.length
+        inputRef.current.setSelectionRange(end, end)
+      } else {
+        inputRef.current.select()
+      }
     }
-  }, [data.isEditing])
+  }, [data.isEditing, data.editCursorAtEnd])
 
   // Grow the textarea to fit its content so the node keeps the same height
   // when toggling between view and edit mode (otherwise rows={1} would collapse it).
