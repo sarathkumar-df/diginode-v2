@@ -3,9 +3,8 @@
  * Fixed 240px width, always visible.
  */
 import { useNavigate } from 'react-router-dom'
-import { useMsal } from '@azure/msal-react'
-import { useCurrentUser } from '@/auth/AuthProvider'
-import { Layers, Map as MapIcon, Users, LogOut } from 'lucide-react'
+import { Layers, Map as MapIcon, Users } from 'lucide-react'
+import { UserMenu } from '@/components/Layout/UserMenu'
 
 type ActiveTab = 'maps' | 'teams'
 
@@ -15,21 +14,26 @@ interface Props {
 
 export function AppSidebar({ activeTab }: Props) {
   const navigate = useNavigate()
-  const { instance } = useMsal()
-  const user = useCurrentUser()
 
   return (
     <aside
       className="flex flex-col flex-shrink-0 border-r h-full"
       style={{ width: 240, background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
     >
-      {/* Brand */}
-      <div className="flex items-center gap-2.5 px-5 h-14 flex-shrink-0 border-b" style={{ borderColor: 'var(--panel-border)' }}>
+      {/* Brand — clicking takes the user back to the dashboard */}
+      <button
+        onClick={() => navigate('/dashboard')}
+        title="Go to dashboard"
+        className="flex items-center gap-2.5 px-5 h-14 flex-shrink-0 border-b w-full text-left transition-colors"
+        style={{ borderColor: 'var(--panel-border)', background: 'transparent' }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--canvas-bg)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+      >
         <div className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center shadow-sm flex-shrink-0">
           <Layers size={14} color="white" />
         </div>
         <span className="font-bold text-sm tracking-tight" style={{ color: 'var(--text-primary)' }}>DigiNode</span>
-      </div>
+      </button>
 
       {/* Nav */}
       <nav className="flex flex-col gap-0.5 px-3 pt-4 flex-1">
@@ -50,32 +54,9 @@ export function AppSidebar({ activeTab }: Props) {
         />
       </nav>
 
-      {/* User card */}
+      {/* User menu — click the card to open Sign out */}
       <div className="px-3 pb-4 flex-shrink-0">
-        <div
-          className="flex items-center gap-3 px-3 py-3 rounded-2xl"
-          style={{ background: 'var(--canvas-bg)' }}
-        >
-          <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {user?.name?.charAt(0).toUpperCase() ?? '?'}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-              {user?.name}
-            </p>
-            <p className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
-              {user?.email}
-            </p>
-          </div>
-          <button
-            onClick={() => instance.logoutPopup()}
-            title="Sign out"
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 flex-shrink-0"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            <LogOut size={13} />
-          </button>
-        </div>
+        <UserMenu variant="card" />
       </div>
     </aside>
   )

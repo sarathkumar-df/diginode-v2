@@ -23,8 +23,12 @@ import { captureThumb } from '@/utils/captureThumb'
 import { fetchSharedMap } from '@/services/shareService'
 import { RoomProvider, presenceColor } from '@/liveblocks.config'
 import { useCurrentUser } from '@/auth/AuthProvider'
+import { LoadingShell } from '@/components/UI/LoadingShell'
 import { MapPermission } from '@/types'
-import { Loader2, Eye } from 'lucide-react'
+import {
+  Eye, Layers, Map as MapIcon, ArrowLeft, Plus, Wand2, GitBranch, Workflow,
+  Search, Sparkles, MonitorPlay, Sun, History, Share2, Settings, Download,
+} from 'lucide-react'
 
 const SAVE_DEBOUNCE = 2000
 
@@ -104,11 +108,7 @@ function MapPageInner() {
   }, [nodes, edges])
 
   if (loading) {
-    return (
-      <div className="w-screen h-screen flex items-center justify-center" style={{ background: 'var(--canvas-bg)' }}>
-        <Loader2 size={28} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
-      </div>
-    )
+    return <MapPageSkeleton />
   }
 
   if (error) {
@@ -213,5 +213,112 @@ export function MapPage() {
     <ReactFlowProvider>
       <MapPageInner />
     </ReactFlowProvider>
+  )
+}
+
+// ── Loading skeleton ─────────────────────────────────────────────────────────
+// Shadow-render: we render real-looking JSX (real icons, real text labels,
+// real classNames) and let LoadingShell's CSS mask everything into pulsing
+// grey blocks. Future UI changes to the toolbar or sidebar layout flow into
+// the skeleton automatically — only button counts need to be kept in sync.
+
+const TOOLBAR_ICONS = [
+  Wand2, GitBranch, Workflow, Plus, Search, MapIcon, Layers, Download,
+  Sparkles, MonitorPlay, Sun, History, Share2, Settings,
+]
+
+function MapPageSkeleton() {
+  return (
+    <LoadingShell loading>
+      <div
+        className="flex w-screen h-screen overflow-hidden"
+        style={{ background: 'var(--canvas-bg)' }}
+      >
+        {/* Left sidebar — same shape as the real LeftSidebar */}
+        <aside
+          data-skeleton-frame
+          className="flex flex-col border-r flex-shrink-0"
+          style={{ width: 220, background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
+        >
+          <div
+            className="flex items-center h-14 flex-shrink-0 border-b px-3.5 gap-2.5"
+            style={{ borderColor: 'var(--panel-border)' }}
+          >
+            <div className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center">
+              <Layers size={14} color="white" />
+            </div>
+            <span className="font-bold text-sm tracking-tight">DigiNode</span>
+          </div>
+
+          <div className="flex items-center h-10 px-3.5 gap-2">
+            <MapIcon size={14} />
+            <span className="text-xs font-semibold uppercase tracking-widest flex-1">My Maps</span>
+            <button className="w-6 h-6 rounded-md bg-indigo-500 text-white">
+              <Plus size={12} />
+            </button>
+          </div>
+
+          <div className="flex-1 py-1">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="mx-2 mb-0.5 rounded-xl flex items-center gap-2 px-2.5 py-2"
+              >
+                <div className="w-2 h-2 rounded-full flex-shrink-0 bg-indigo-500" />
+                <span className="text-sm font-medium truncate">Loading map title</span>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* Main column */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          {/* Top toolbar */}
+          <div
+            data-skeleton-frame
+            className="flex items-center h-14 border-b flex-shrink-0 px-3 gap-1"
+            style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
+          >
+            <button className="w-7 h-7 rounded-lg flex items-center justify-center">
+              <ArrowLeft size={14} />
+            </button>
+            <span className="text-sm font-semibold ml-2">Loading map title</span>
+            <div className="w-px self-stretch my-2 mx-2" style={{ background: 'var(--panel-border)' }} />
+
+            {TOOLBAR_ICONS.map((Icon, i) => (
+              <button
+                key={i}
+                className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg min-w-[44px]"
+              >
+                <Icon size={15} />
+                <span className="text-[9px] font-medium leading-none">Label</span>
+              </button>
+            ))}
+
+            <div className="flex-1" />
+            <div className="w-8 h-8 rounded-full bg-indigo-500" />
+          </div>
+
+          {/* Canvas — faint mind-map silhouette */}
+          <div className="flex-1 relative overflow-hidden flex items-center justify-center">
+            <svg viewBox="0 0 600 360" className="w-3/4 max-w-2xl" fill="none" aria-hidden>
+              {[
+                'M 300 180 Q 230 130 140 90',
+                'M 300 180 Q 230 230 140 280',
+                'M 300 180 Q 380 130 470 80',
+                'M 300 180 Q 400 180 470 180',
+                'M 300 180 Q 380 230 470 280',
+              ].map((d, i) => (
+                <path key={i} d={d} stroke="var(--panel-border)" strokeWidth="2" strokeLinecap="round" />
+              ))}
+              <circle cx={300} cy={180} r={28} fill="var(--panel-border)" />
+              {[[140, 90], [140, 280], [470, 80], [470, 180], [470, 280]].map(([x, y], i) => (
+                <circle key={i} cx={x} cy={y} r={16} fill="var(--panel-border)" />
+              ))}
+            </svg>
+          </div>
+        </div>
+      </div>
+    </LoadingShell>
   )
 }

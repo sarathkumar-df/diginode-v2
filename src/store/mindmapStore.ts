@@ -130,6 +130,9 @@ interface MindMapStore {
   undo: () => void
   redo: () => void
   pushHistory: () => void
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  reset: () => void
 }
 
 export const useMindMapStore = create<MindMapStore>()((set, get) => ({
@@ -878,4 +881,15 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       historyIndex: historyIndex + 1,
     })
   },
+
+  reset: () =>
+    set({
+      maps: [],
+      activeMapId: null,
+      nodes: [],
+      edges: [],
+      history: [],
+      historyIndex: -1,
+      layoutVersion: 0,
+    }),
 }))

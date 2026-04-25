@@ -9,6 +9,7 @@ import { useUIStore } from '@/store/uiStore'
 import { fetchFlow, saveFlow, renameFlow, duplicateFlow, deleteFlow } from '@/services/flowService'
 import { exportFlowToPng, exportFlowToSvg, exportFlowToPdf } from '@/utils/exportUtils'
 import { useConfirm } from '@/components/UI/ConfirmModal'
+import { UserMenu } from '@/components/Layout/UserMenu'
 
 const SAVE_DEBOUNCE = 2000
 
@@ -331,6 +332,10 @@ function FlowPageInner() {
           >
             <Trash2 size={14} />
           </button>
+
+          <div className="w-px h-5 mx-0.5" style={{ background: 'var(--panel-border)' }} />
+
+          <UserMenu align="right" />
         </div>
       </div>
 

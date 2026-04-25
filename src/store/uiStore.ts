@@ -79,6 +79,9 @@ interface UIStore {
   exitPresentationMode: () => void
   presentationNext: () => void
   presentationPrev: () => void
+
+  // Lifecycle
+  reset: () => void
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
@@ -173,5 +176,28 @@ export const useUIStore = create<UIStore>((set, get) => ({
   })),
   presentationPrev: () => set((s) => ({
     presentationIndex: Math.max(s.presentationIndex - 1, 0),
+  })),
+
+  reset: () => set((s) => ({
+    // Preserve theme (it's a device preference, not user-specific state)
+    leftPanelOpen: false,
+    rightPanelOpen: false,
+    selectedNodeIds: [],
+    selectedEdgeIds: [],
+    focusMode: false,
+    searchOpen: false,
+    searchQuery: '',
+    searchResults: [],
+    inspectorNodeId: null,
+    dropTargetId: null,
+    aiMessages: [],
+    aiStatus: 'idle',
+    aiError: null,
+    expandResult: null,
+    presentationMode: false,
+    presentationIndex: 0,
+    presentationOrder: [],
+    theme: s.theme,
+    minimapVisible: s.minimapVisible,
   })),
 }))

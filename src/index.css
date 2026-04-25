@@ -71,6 +71,74 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ─── Skeleton (shadow-render) ───────────────────────────────────────────── */
+/* The LoadingShell wraps the real component tree with [data-skeleton]. Real
+ * elements are rendered structurally identical to the loaded UI; these rules
+ * mask their content (text/icons/media) into pulsing grey blocks so the
+ * skeleton automatically tracks any layout change to the real components. */
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+[data-skeleton] {
+  pointer-events: none !important;
+  user-select: none !important;
+  cursor: default !important;
+}
+
+/* Block all transitions & animations from the real components so they don't
+ * fight with the pulse animation. */
+[data-skeleton] *,
+[data-skeleton] *::before,
+[data-skeleton] *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* Mask any text-bearing leaf into a grey rounded block. */
+[data-skeleton] :is(p, span, h1, h2, h3, h4, h5, h6, a, time, label, kbd, li, dt, dd, strong, em) {
+  color: transparent !important;
+  text-shadow: none !important;
+  background-color: var(--canvas-bg) !important;
+  background-image: none !important;
+  border-radius: 6px !important;
+  animation: skeleton-pulse 1.6s ease-in-out infinite !important;
+}
+
+/* Hide all icons / media — their box (parent) becomes the grey block. */
+[data-skeleton] :is(svg, img, video, canvas, picture) {
+  visibility: hidden !important;
+}
+
+/* Inputs & buttons: wipe content + chrome, render as grey pulse blocks. */
+[data-skeleton] :is(input, textarea, select) {
+  color: transparent !important;
+  background-color: var(--canvas-bg) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  animation: skeleton-pulse 1.6s ease-in-out infinite !important;
+}
+
+[data-skeleton] button {
+  color: transparent !important;
+  background-color: var(--canvas-bg) !important;
+  background-image: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  animation: skeleton-pulse 1.6s ease-in-out infinite !important;
+}
+
+/* Opt-out: [data-skeleton-frame] is structural chrome (panels, dividers).
+ * The element itself keeps its own background/borders — only its descendants
+ * get masked. Nest this on aside/header/toolbar wrappers. */
+[data-skeleton] [data-skeleton-frame] {
+  background-color: revert !important;
+  border-color: revert !important;
+  animation: none !important;
+}
+
 /* ─── React Flow ─────────────────────────────────────────────────────────── */
 
 /* Animate node position changes (redistributeChildren, addNode, deleteNode) */

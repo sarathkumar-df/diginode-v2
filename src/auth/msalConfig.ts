@@ -1,4 +1,4 @@
-import { Configuration, PopupRequest } from '@azure/msal-browser'
+import { Configuration, RedirectRequest } from '@azure/msal-browser'
 
 // Azure App Registration values — set these in your .env file
 // VITE_AZURE_CLIENT_ID  → Application (client) ID from Azure Portal
@@ -11,22 +11,19 @@ export const msalConfig: Configuration = {
   auth: {
     clientId: import.meta.env.VITE_AZURE_CLIENT_ID ?? '',
     authority: `https://login.microsoftonline.com/${import.meta.env.VITE_AZURE_TENANT_ID ?? 'common'}`,
-    redirectUri: window.location.origin, // e.g. http://localhost:5173 or https://your-vercel-app.vercel.app
+    redirectUri: window.location.origin,
+    postLogoutRedirectUri: `${window.location.origin}/sign-in`,
   },
   cache: {
     cacheLocation: 'sessionStorage', // sessionStorage: cleared on tab close (more secure than localStorage)
   },
 }
 
-// Scopes requested during login
-// openid + profile + email give us the user's identity
-// User.Read gives access to basic Microsoft Graph profile data
-export const loginRequest: PopupRequest = {
-  scopes: ['openid', 'profile', 'email', 'User.Read'],
-}
+// Scopes used for both interactive login and silent token acquisition.
+// Keep this single source of truth so silent token requests don't trigger
+// extra round-trips due to scope drift.
+export const authScopes = ['openid', 'profile', 'email', 'User.Read']
 
-// The audience your Express backend will validate tokens against
-// Must match the clientId of your Azure App Registration
-export const tokenRequest = {
-  scopes: [`api://${import.meta.env.VITE_AZURE_CLIENT_ID}/access_as_user`],
+export const loginRequest: RedirectRequest = {
+  scopes: authScopes,
 }

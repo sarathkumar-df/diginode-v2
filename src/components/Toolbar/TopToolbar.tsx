@@ -11,6 +11,7 @@ import { exportToJSON, exportToMarkdown, exportToPng } from '@/utils/exportUtils
 import { useReactFlow } from 'reactflow'
 import { createMap as createMapApi, renameMap } from '@/services/mapService'
 import { PresenceAvatars } from '@/components/UI/PresenceAvatars'
+import { UserMenu } from '@/components/Layout/UserMenu'
 import { MapMeta } from '@/types'
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
@@ -335,6 +336,10 @@ export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSett
       <IconBtn icon={History} label="History" onClick={onOpenHistory} />
       <IconBtn icon={Share2} label="Share" onClick={onOpenShare} />
       <IconBtn icon={Settings} label="Settings" onClick={onOpenSettings} />
+
+      {/* Spacer pushes the user menu to the far right */}
+      <div className="flex-1" />
+      <UserMenu align="right" />
     </div>
   )
 }
