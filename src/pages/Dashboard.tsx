@@ -31,71 +31,110 @@ const SORT_LABELS: Record<SortMode, string> = {
 }
 
 const PROMPT_SUGGESTIONS = [
-  'Plan a Q2 product launch',
-  'Outline a course on Python',
+  'Decompose this PRD into epics and tickets',
+  'Map dependencies for our Q4 launch',
+  'Plan a 3-month product roadmap',
   'Brainstorm features for a SaaS app',
-  'OKRs for the engineering team',
 ]
 
 // ── Mini map thumbnail SVG ────────────────────────────────────────────────────
-// Generates a deterministic mind-map-like SVG from the map id + rootColor.
+// Deterministic mind-map preview SVG for cards without a captured thumbnail.
+// Uses rootColor + map id as the seed so the same map always renders the
+// same shape — gives the eye something to recognise even before real
+// thumbnails finish capturing.
 
 function MapThumbnail({ id, color }: { id: string; color: string }) {
-  // Deterministic pseudo-random from id string
   const hash = id.split('').reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) >>> 0, 0)
   const r = (n: number) => ((hash >> n) & 0xff) / 255
 
   const cx = 80
   const cy = 56
   const branches = 3 + (hash % 3) // 3–5 branches
-  const nodes: { x: number; y: number; r: number }[] = []
+  const nodes: { x: number; y: number; r: number; parent: number | null }[] = []
 
   for (let i = 0; i < branches; i++) {
-    const angle = (i / branches) * Math.PI * 2 - Math.PI / 2 + r(i * 4) * 0.5
-    const dist = 28 + r(i * 7) * 16
+    const angle = (i / branches) * Math.PI * 2 - Math.PI / 2 + (r(i * 4) - 0.5) * 0.4
+    const dist = 30 + r(i * 7) * 14
     const x = cx + Math.cos(angle) * dist
     const y = cy + Math.sin(angle) * dist
-    nodes.push({ x, y, r: 4 + r(i * 3) * 3 })
+    nodes.push({ x, y, r: 3.5 + r(i * 3) * 2, parent: null })
 
-    // Optional second-level child
-    if (r(i * 11) > 0.45) {
-      const a2 = angle + (r(i * 13) - 0.5) * 0.9
-      const d2 = 16 + r(i * 9) * 10
-      nodes.push({ x: x + Math.cos(a2) * d2, y: y + Math.sin(a2) * d2, r: 3 })
+    if (r(i * 11) > 0.4) {
+      const a2 = angle + (r(i * 13) - 0.5) * 0.7
+      const d2 = 14 + r(i * 9) * 8
+      nodes.push({
+        x: x + Math.cos(a2) * d2,
+        y: y + Math.sin(a2) * d2,
+        r: 2.5,
+        parent: nodes.length - 1,
+      })
     }
   }
 
-  const alpha = 'cc'
-
   return (
     <svg viewBox="0 0 160 112" className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
-      {/* Edges to primary children */}
-      {nodes.slice(0, branches).map((n, i) => (
-        <line
-          key={`e-${i}`}
-          x1={cx} y1={cy} x2={n.x} y2={n.y}
-          stroke={color + '55'} strokeWidth="1.5" strokeLinecap="round"
-        />
-      ))}
-      {/* Edges to secondary children */}
-      {nodes.slice(branches).map((n, i) => {
-        const parentIdx = Math.floor(i * branches / (nodes.length - branches))
-        const parent = nodes[parentIdx] ?? nodes[0]
+      {/* Edges — thinner stroke, lower opacity for refinement */}
+      {nodes.map((n, i) => {
+        const start = n.parent === null ? { x: cx, y: cy } : nodes[n.parent]
         return (
           <line
-            key={`e2-${i}`}
-            x1={parent.x} y1={parent.y} x2={n.x} y2={n.y}
-            stroke={color + '44'} strokeWidth="1" strokeLinecap="round"
+            key={`e-${i}`}
+            x1={start.x} y1={start.y} x2={n.x} y2={n.y}
+            stroke={color}
+            strokeWidth="1"
+            strokeLinecap="round"
+            opacity={n.parent === null ? 0.45 : 0.28}
           />
         )
       })}
-      {/* Leaf nodes */}
+      {/* Leaf nodes — soft white core gives a subtle "node" feel */}
       {nodes.map((n, i) => (
-        <circle key={`n-${i}`} cx={n.x} cy={n.y} r={n.r} fill={color + alpha} />
+        <g key={`n-${i}`}>
+          <circle cx={n.x} cy={n.y} r={n.r} fill={color} opacity={n.parent === null ? 0.85 : 0.65} />
+          <circle cx={n.x} cy={n.y} r={Math.max(n.r - 1.5, 0.8)} fill="white" opacity={0.85} />
+        </g>
       ))}
-      {/* Root node */}
-      <circle cx={cx} cy={cy} r={9} fill={color} />
-      <circle cx={cx} cy={cy} r={5} fill="white" opacity={0.6} />
+      {/* Root node — solid + soft inner highlight */}
+      <circle cx={cx} cy={cy} r={8.5} fill={color} />
+      <circle cx={cx} cy={cy} r={4.5} fill="white" opacity={0.4} />
+    </svg>
+  )
+}
+
+// ── Ambient mind-map background (hero only) ─────────────────────────────────
+// Static, decorative SVG that lives behind the HeroPrompt input. Very low
+// opacity — exists to anchor the surface in the product's visual language
+// (the mind-map is the brand) without competing with the form.
+
+function HeroAmbientMap() {
+  return (
+    <svg
+      viewBox="0 0 600 200"
+      className="absolute inset-0 w-full h-full pointer-events-none"
+      preserveAspectRatio="xMidYMid slice"
+    >
+      <defs>
+        <linearGradient id="hero-edge" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#4F46E5" stopOpacity="0.20" />
+          <stop offset="100%" stopColor="#7C3AED" stopOpacity="0.05" />
+        </linearGradient>
+      </defs>
+      {/* Edges fanning out from a notional root just outside the right edge */}
+      <g stroke="url(#hero-edge)" strokeWidth="1" fill="none" opacity={0.5}>
+        <path d="M 600 100 Q 480 60 360 40" />
+        <path d="M 600 100 Q 480 100 360 90" />
+        <path d="M 600 100 Q 480 140 360 160" />
+        <path d="M 600 100 Q 520 80 440 40" />
+        <path d="M 600 100 Q 520 120 440 160" />
+      </g>
+      {/* Sparse nodes — opacity tuned to feel ambient, not decorative */}
+      <g fill="#4F46E5" opacity={0.10}>
+        <circle cx={360} cy={40} r={3} />
+        <circle cx={360} cy={90} r={3} />
+        <circle cx={360} cy={160} r={3} />
+        <circle cx={440} cy={40} r={2.5} />
+        <circle cx={440} cy={160} r={2.5} />
+      </g>
     </svg>
   )
 }
@@ -157,25 +196,35 @@ function MapCard({ map, onDelete, onDuplicate }: { map: MapMeta; onDelete: (id: 
 
   return (
     <div
-      className="group relative flex flex-col rounded-2xl border overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-lg"
-      style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
+      className="group relative flex flex-col rounded-2xl border overflow-hidden cursor-pointer transition-all duration-150 ease-out hover:-translate-y-0.5"
+      style={{
+        background: 'var(--panel-bg)',
+        borderColor: 'var(--panel-border)',
+        boxShadow: 'var(--shadow-sm)',
+      }}
       onClick={() => !deleting && !duplicating && navigate(`/map/${map.id}`)}
       onMouseLeave={() => setMenuOpen(false)}
+      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow-md)' }}
+      onMouseOut={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow-sm)' }}
     >
-      {/* Thumbnail */}
+      {/* Thumbnail — neutral well so the rootColor lives in the SVG, not the surface */}
       <div
-        className="relative w-full overflow-hidden flex-shrink-0"
-        style={{ height: 140, background: `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)` }}
+        className="relative w-full overflow-hidden flex-shrink-0 border-b"
+        style={{
+          height: 140,
+          background: 'var(--surface-well)',
+          borderColor: 'var(--panel-border)',
+        }}
       >
         {map.thumbnail ? (
           <img
             src={map.thumbnail}
             alt={map.title}
-            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
             draggable={false}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center opacity-90 group-hover:scale-105 transition-transform duration-300">
+          <div className="absolute inset-0 flex items-center justify-center transition-transform duration-300 group-hover:scale-[1.02]">
             <MapThumbnail id={map.id} color={color} />
           </div>
         )}
@@ -221,22 +270,28 @@ function MapCard({ map, onDelete, onDuplicate }: { map: MapMeta; onDelete: (id: 
         )}
       </div>
 
-      {/* Card footer */}
+      {/* Card footer — root-color dot + title, refined typography */}
       <div className="flex items-center justify-between px-4 py-3 gap-2">
-        <div className="min-w-0">
-          <p
-            className="text-sm font-semibold truncate"
-            style={{ color: map.title === DEFAULT_TITLE ? 'var(--text-muted)' : 'var(--text-primary)' }}
-          >
-            {map.title === DEFAULT_TITLE ? '(Untitled)' : map.title}
-          </p>
-          <p className="text-[11px] flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-muted)' }}>
-            <Clock size={10} />{relativeTime(map.updatedAt)}
-          </p>
+        <div className="min-w-0 flex items-center gap-2">
+          <span
+            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+            style={{ background: color }}
+          />
+          <div className="min-w-0">
+            <p
+              className="text-sm font-semibold truncate tracking-tight"
+              style={{ color: map.title === DEFAULT_TITLE ? 'var(--text-muted)' : 'var(--text-primary)' }}
+            >
+              {map.title === DEFAULT_TITLE ? '(Untitled)' : map.title}
+            </p>
+            <p className="text-[11px] flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              <Clock size={10} />{relativeTime(map.updatedAt)}
+            </p>
+          </div>
         </div>
         <ChevronRight
           size={14}
-          className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="flex-shrink-0 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all"
           style={{ color: 'var(--brand)' }}
         />
       </div>
@@ -248,51 +303,68 @@ function MapCard({ map, onDelete, onDuplicate }: { map: MapMeta; onDelete: (id: 
 
 function BigMapCard({ map }: { map: MapMeta }) {
   const navigate = useNavigate()
-  const color = map.rootColor ?? '#6366f1'
+  const color = map.rootColor ?? '#4F46E5'
   const untitled = map.title === DEFAULT_TITLE
 
   return (
     <div
-      className="group relative flex flex-col rounded-2xl border overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-xl"
-      style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
+      className="group relative flex flex-col rounded-2xl border overflow-hidden cursor-pointer transition-all duration-150 ease-out hover:-translate-y-0.5"
+      style={{
+        background: 'var(--panel-bg)',
+        borderColor: 'var(--panel-border)',
+        boxShadow: 'var(--shadow-sm)',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow-md)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow-sm)' }}
       onClick={() => navigate(`/map/${map.id}`)}
     >
       <div
-        className="relative w-full overflow-hidden flex-shrink-0"
-        style={{ height: 200, background: `linear-gradient(135deg, ${color}22 0%, ${color}0a 100%)` }}
+        className="relative w-full overflow-hidden flex-shrink-0 border-b"
+        style={{
+          height: 200,
+          background: 'var(--surface-well)',
+          borderColor: 'var(--panel-border)',
+        }}
       >
         {map.thumbnail ? (
           <img
             src={map.thumbnail}
             alt={map.title}
-            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
             draggable={false}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center opacity-90 group-hover:scale-105 transition-transform duration-300">
+          <div className="absolute inset-0 flex items-center justify-center transition-transform duration-300 group-hover:scale-[1.02]">
             <MapThumbnail id={map.id} color={color} />
           </div>
         )}
       </div>
 
+      {/* Footer — root-color dot acts as map identity, hover-reveal arrow
+          replaces the always-on "Continue" chip (cleaner, less marketing). */}
       <div className="flex items-center justify-between px-5 py-4 gap-3">
-        <div className="min-w-0 flex-1">
-          <p
-            className="text-base font-semibold truncate"
-            style={{ color: untitled ? 'var(--text-muted)' : 'var(--text-primary)' }}
-          >
-            {untitled ? '(Untitled)' : map.title}
-          </p>
-          <p className="text-xs flex items-center gap-1 mt-1" style={{ color: 'var(--text-muted)' }}>
-            <Clock size={11} /> Edited {relativeTime(map.updatedAt)}
-          </p>
+        <div className="min-w-0 flex-1 flex items-center gap-2.5">
+          <span
+            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+            style={{ background: color }}
+          />
+          <div className="min-w-0">
+            <p
+              className="text-[15px] font-semibold truncate tracking-tight"
+              style={{ color: untitled ? 'var(--text-muted)' : 'var(--text-primary)' }}
+            >
+              {untitled ? '(Untitled)' : map.title}
+            </p>
+            <p className="text-xs flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              <Clock size={11} /> Edited {relativeTime(map.updatedAt)}
+            </p>
+          </div>
         </div>
-        <div
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold flex-shrink-0 transition-all group-hover:gap-2.5"
-          style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
-        >
-          Continue <ArrowRight size={13} />
-        </div>
+        <ArrowRight
+          size={16}
+          className="flex-shrink-0 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all"
+          style={{ color: 'var(--brand)' }}
+        />
       </div>
     </div>
   )
@@ -302,52 +374,73 @@ function BigMapCard({ map }: { map: MapMeta }) {
 
 function SharedMapCard({ map }: { map: SharedMapMeta }) {
   const navigate = useNavigate()
-  const color = map.rootColor ?? '#6366f1'
+  const color = map.rootColor ?? '#4F46E5'
 
   return (
     <div
-      className="group relative flex flex-col rounded-2xl border overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-lg"
-      style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
+      className="group relative flex flex-col rounded-2xl border overflow-hidden cursor-pointer transition-all duration-150 ease-out hover:-translate-y-0.5"
+      style={{
+        background: 'var(--panel-bg)',
+        borderColor: 'var(--panel-border)',
+        boxShadow: 'var(--shadow-sm)',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow-md)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow-sm)' }}
       onClick={() => navigate(`/map/${map.id}`)}
     >
       <div
-        className="relative w-full overflow-hidden flex-shrink-0"
-        style={{ height: 140, background: `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)` }}
+        className="relative w-full overflow-hidden flex-shrink-0 border-b"
+        style={{
+          height: 140,
+          background: 'var(--surface-well)',
+          borderColor: 'var(--panel-border)',
+        }}
       >
         {map.thumbnail ? (
           <img
             src={map.thumbnail}
             alt={map.title}
-            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
             draggable={false}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center opacity-90 group-hover:scale-105 transition-transform duration-300">
+          <div className="absolute inset-0 flex items-center justify-center transition-transform duration-300 group-hover:scale-[1.02]">
             <MapThumbnail id={map.id} color={color} />
           </div>
         )}
         <div
-          className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full text-[10px] font-semibold"
-          style={{ background: 'rgba(255,255,255,0.88)', color: map.permission === 'edit' ? '#6366f1' : '#6B7280', backdropFilter: 'blur(4px)' }}
+          className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md text-[10px] font-semibold"
+          style={{
+            background: 'var(--panel-bg)',
+            color: map.permission === 'edit' ? 'var(--brand)' : 'var(--text-secondary)',
+            border: '1px solid var(--panel-border)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
         >
           {map.permission === 'edit' ? 'Can edit' : 'View only'}
         </div>
       </div>
       <div className="flex items-center justify-between px-4 py-3 gap-2">
-        <div className="min-w-0">
-          <p
-            className="text-sm font-semibold truncate"
-            style={{ color: map.title === DEFAULT_TITLE ? 'var(--text-muted)' : 'var(--text-primary)' }}
-          >
-            {map.title === DEFAULT_TITLE ? '(Untitled)' : map.title}
-          </p>
-          <p className="text-[11px] flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-muted)' }}>
-            <Share2 size={10} /> {map.ownerName} · {relativeTime(map.updatedAt)}
-          </p>
+        <div className="min-w-0 flex items-center gap-2">
+          <span
+            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+            style={{ background: color }}
+          />
+          <div className="min-w-0">
+            <p
+              className="text-sm font-semibold truncate tracking-tight"
+              style={{ color: map.title === DEFAULT_TITLE ? 'var(--text-muted)' : 'var(--text-primary)' }}
+            >
+              {map.title === DEFAULT_TITLE ? '(Untitled)' : map.title}
+            </p>
+            <p className="text-[11px] flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              <Share2 size={10} /> {map.ownerName} · {relativeTime(map.updatedAt)}
+            </p>
+          </div>
         </div>
         <ChevronRight
           size={14}
-          className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="flex-shrink-0 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all"
           style={{ color: 'var(--brand)' }}
         />
       </div>
@@ -361,11 +454,15 @@ interface HeroPromptProps {
   onSubmit: (prompt: string) => Promise<void>
   generating: boolean
   error: string | null
+  /** Externally-owned input ref so global keyboard shortcuts can focus it. */
+  inputRef?: React.RefObject<HTMLInputElement>
 }
 
-function HeroPrompt({ onSubmit, generating, error }: HeroPromptProps) {
+function HeroPrompt({ onSubmit, generating, error, inputRef: externalRef }: HeroPromptProps) {
   const [value, setValue] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [focused, setFocused] = useState(false)
+  const localRef = useRef<HTMLInputElement>(null)
+  const inputRef = externalRef ?? localRef
 
   const submit = (text: string) => {
     const trimmed = text.trim()
@@ -376,51 +473,58 @@ function HeroPrompt({ onSubmit, generating, error }: HeroPromptProps) {
   return (
     <section className="mb-10">
       <div
-        className="relative rounded-3xl border overflow-hidden"
+        className="relative rounded-2xl border overflow-hidden"
         style={{
+          background: 'var(--panel-bg)',
           borderColor: 'var(--panel-border)',
-          background:
-            'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(168,85,247,0.05) 60%, var(--panel-bg) 100%)',
+          boxShadow: 'var(--shadow-sm)',
         }}
       >
-        <div className="px-7 py-7">
-          <div className="flex items-center gap-2.5 mb-1.5">
-            <div className="w-7 h-7 rounded-xl bg-indigo-500 flex items-center justify-center shadow-sm">
-              <Sparkles size={14} color="white" />
-            </div>
+        {/* Mind-map = brand. Sits behind the form at low opacity. */}
+        <HeroAmbientMap />
+
+        <div className="relative px-6 py-5">
+          {/* Eyebrow — minimal label; the placeholder + chips already
+              communicate the function. Model picker removed (was decoration). */}
+          <div className="flex items-center gap-2 mb-3.5">
+            <Sparkles size={13} style={{ color: 'var(--brand)' }} />
             <span
-              className="text-[11px] font-semibold uppercase tracking-widest"
-              style={{ color: 'var(--brand)' }}
+              className="text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--text-secondary)' }}
             >
               Generate with AI
             </span>
           </div>
-          <h2
-            className="text-2xl font-bold tracking-tight"
-            style={{ color: 'var(--text-primary)' }}
-          >
-            What do you want to map today?
-          </h2>
 
           <form
             onSubmit={(e) => { e.preventDefault(); submit(value) }}
-            className="mt-5 flex items-center gap-2 rounded-2xl border pl-4 pr-1.5 py-1.5 transition-shadow focus-within:shadow-md"
-            style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)' }}
+            className="flex items-center gap-2 rounded-xl border pl-3.5 pr-1.5 py-1.5 transition-all"
+            style={{
+              background: 'var(--surface-well)',
+              borderColor: focused ? 'var(--brand)' : 'transparent',
+              boxShadow: focused ? '0 0 0 3px rgba(79,70,229,0.10)' : 'none',
+            }}
           >
             <input
               ref={inputRef}
               value={value}
               onChange={(e) => setValue(e.target.value)}
-              placeholder="Describe a topic, plan, or idea…"
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder="Describe a topic, plan, or PRD…"
               disabled={generating}
-              className="flex-1 bg-transparent outline-none text-sm py-2"
+              className="flex-1 bg-transparent outline-none text-[15px] py-1.5"
               style={{ color: 'var(--text-primary)' }}
             />
             <button
               type="submit"
               disabled={!value.trim() || generating}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-              style={{ background: 'var(--brand)', color: 'white' }}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                background: 'var(--brand-gradient)',
+                color: 'white',
+                boxShadow: '0 1px 2px rgba(79,70,229,0.25)',
+              }}
             >
               {generating ? (
                 <><Loader2 size={14} className="animate-spin" /> Generating…</>
@@ -430,17 +534,16 @@ function HeroPrompt({ onSubmit, generating, error }: HeroPromptProps) {
             </button>
           </form>
 
-          <div className="flex flex-wrap gap-1.5 mt-3.5">
-            <span className="text-[11px] mr-1 self-center" style={{ color: 'var(--text-muted)' }}>
-              Try:
-            </span>
+          <div className="flex flex-wrap gap-1.5 mt-3">
             {PROMPT_SUGGESTIONS.map((s) => (
               <button
                 key={s}
                 onClick={() => { setValue(s); submit(s) }}
                 disabled={generating}
-                className="text-[11px] px-2.5 py-1 rounded-full border transition-colors hover:border-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-50"
-                style={{ borderColor: 'var(--panel-border)', color: 'var(--text-secondary)' }}
+                className="text-[12px] px-2.5 py-1 rounded-md border transition-colors disabled:opacity-50"
+                style={{ borderColor: 'var(--panel-border)', color: 'var(--text-secondary)', background: 'transparent' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-well)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
               >
                 {s}
               </button>
@@ -589,6 +692,10 @@ export function Dashboard() {
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
 
+  // Refs for global keyboard shortcuts (N / G / /)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const generateInputRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     let cancelled = false
     async function init() {
@@ -629,6 +736,27 @@ export function Dashboard() {
       setCreating(false)
     }
   }
+
+  // Global keyboard shortcuts. Suppressed while typing in another input so the
+  // user can still type "n" or "g" anywhere normally. The handler is kept in a
+  // ref so the bare `[]` deps don't capture a stale handleNewMap.
+  const handleNewMapRef = useRef(handleNewMap)
+  handleNewMapRef.current = handleNewMap
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return
+      const k = e.key.toLowerCase()
+      if (k === 'n') { e.preventDefault(); void handleNewMapRef.current() }
+      else if (k === '/') { e.preventDefault(); searchInputRef.current?.focus() }
+      else if (k === 'g') { e.preventDefault(); generateInputRef.current?.focus() }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   const handleDelete = (id: string) => {
     setMaps((prev) => prev.filter((m) => m.id !== id))
@@ -728,9 +856,42 @@ export function Dashboard() {
   const skeletonMaps = useMemo(() => makeSkeletonMaps(10), [])
   const visibleMaps = loading ? skeletonMaps : filteredMaps
 
+  // Contextual greeting — replaces "Welcome back 👋" with a one-liner that
+  // reflects the user's actual state. Clicking the heading jumps straight to
+  // the most recently edited map. This is the kind of small power-user touch
+  // that makes the dashboard feel like a tool, not a marketing page.
+  const headingState = useMemo(() => {
+    if (loading) return null
+    if (maps.length === 0) {
+      return {
+        title: 'Start your first map',
+        sub: user ? `Welcome, ${user.name.split(' ')[0]}` : 'Create one below to get started',
+        href: null as string | null,
+      }
+    }
+    const sorted = [...maps].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    )
+    const last = sorted[0]
+    const lastTitle = last.title === DEFAULT_TITLE ? '(Untitled)' : last.title
+    const weekMs = 7 * 24 * 60 * 60 * 1000
+    const editedThisWeek = maps.filter(
+      (m) => Date.now() - new Date(m.updatedAt).getTime() < weekMs
+    ).length
+    const sub =
+      `${maps.length} map${maps.length !== 1 ? 's' : ''}` +
+      (editedThisWeek > 0 ? ` · ${editedThisWeek} edited this week` : '') +
+      (sharedMaps.length > 0 ? ` · ${sharedMaps.length} shared` : '')
+    return {
+      title: `Last edited: ${lastTitle}`,
+      sub,
+      href: `/map/${last.id}`,
+    }
+  }, [loading, maps, sharedMaps, user])
+
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--canvas-bg)' }}>
-      <AppSidebar activeTab="maps" />
+      <AppSidebar activeTab="maps" loading={loading} />
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -739,37 +900,78 @@ export function Dashboard() {
           className="flex items-center justify-between px-8 py-5 flex-shrink-0 border-b"
           style={{ borderColor: 'var(--panel-border)', background: 'var(--panel-bg)' }}
         >
-          <div>
-            <h1 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-              {user ? `Welcome back, ${user.name.split(' ')[0]} 👋` : 'My Maps'}
-            </h1>
-            <LoadingShell loading={loading}>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                {loading
-                  ? 'Loading your maps…'
-                  : (() => {
-                      const own = `${maps.length} map${maps.length !== 1 ? 's' : ''}`
-                      return sharedMaps.length > 0
-                        ? `${own} · ${sharedMaps.length} shared with you`
-                        : own
-                    })()}
-              </p>
-            </LoadingShell>
+          <div className="min-w-0">
+            {loading || !headingState ? (
+              <LoadingShell loading>
+                <h1 className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                  Loading your workspace
+                </h1>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  Fetching maps and recent activity…
+                </p>
+              </LoadingShell>
+            ) : headingState.href ? (
+              <button
+                onClick={() => navigate(headingState.href!)}
+                className="group text-left flex flex-col"
+                title="Open this map"
+              >
+                <h1
+                  className="text-[15px] font-semibold tracking-tight flex items-center gap-1.5 truncate"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <span className="truncate">{headingState.title}</span>
+                  {/* Permanent chevron at low opacity — primary affordance signal.
+                      Intensifies + slides on hover. */}
+                  <ArrowRight
+                    size={13}
+                    className="flex-shrink-0 opacity-40 transition-all group-hover:opacity-100 group-hover:translate-x-0.5"
+                    style={{ color: 'var(--brand)' }}
+                  />
+                </h1>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {headingState.sub}
+                </p>
+              </button>
+            ) : (
+              <>
+                <h1 className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                  {headingState.title}
+                </h1>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {headingState.sub}
+                </p>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-3">
-            {/* Search */}
+            {/* Search — inset well surface, no border (cleaner). Kbd hint
+                makes the `/` shortcut discoverable. */}
             <div
-              className="flex items-center gap-2 px-3 py-2 rounded-xl border text-sm"
-              style={{ background: 'var(--canvas-bg)', borderColor: 'var(--panel-border)', width: 220 }}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm"
+              style={{ background: 'var(--surface-well)', width: 280 }}
             >
               <Search size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
               <input
+                ref={searchInputRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search maps…"
                 className="bg-transparent outline-none flex-1 text-xs"
                 style={{ color: 'var(--text-primary)' }}
               />
+              {!query && (
+                <kbd
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded border"
+                  style={{
+                    background: 'var(--panel-bg)',
+                    borderColor: 'var(--panel-border)',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  /
+                </kbd>
+              )}
             </div>
             <button
               onClick={() => setImportOpen(true)}
@@ -783,11 +985,17 @@ export function Dashboard() {
             <button
               onClick={handleNewMap}
               disabled={creating}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60 shadow-sm"
+              className="flex items-center gap-2 pl-4 pr-2.5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60 shadow-sm"
               style={{ background: 'var(--brand)', color: 'white' }}
             >
               {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
               New Map
+              <kbd
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded ml-1"
+                style={{ background: 'rgba(255,255,255,0.18)', color: 'rgba(255,255,255,0.9)' }}
+              >
+                N
+              </kbd>
             </button>
           </div>
         </div>
@@ -796,24 +1004,29 @@ export function Dashboard() {
         <div className="flex-1 overflow-y-auto px-8 py-8">
           {error && <p className="text-sm text-red-500 mb-6">{error}</p>}
 
-          {/* Hero prompt — primary "create" surface. Always rendered; it sets
-              the dashboard's tone as a creative starting point. */}
-          {!loading && (
+          {/* Hero prompt — primary "create" surface. Rendered during loading
+              too (wrapped in LoadingShell) so it doesn't pop in afterward. */}
+          <LoadingShell loading={loading}>
             <HeroPrompt
               onSubmit={handleGenerate}
               generating={generating}
               error={generateError}
+              inputRef={generateInputRef}
             />
-          )}
+          </LoadingShell>
 
           <LoadingShell loading={loading}>
-            {/* Continue where you left off — top 3 most recent maps. Hidden
-                while searching so results aren't double-counted. */}
-            {!loading && continueMaps.length > 0 && (
+            {/* Continue where you left off — top 3 most recent maps. During
+                load, render 3 skeleton cards so the row holds its space.
+                Hidden while searching so results aren't double-counted. */}
+            {(loading || continueMaps.length > 0) && (
               <section className="mb-10">
-                <SectionHeader label="Continue where you left off" count={continueMaps.length} />
+                <SectionHeader
+                  label="Continue where you left off"
+                  count={loading ? 3 : continueMaps.length}
+                />
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {continueMaps.map((map) => (
+                  {(loading ? skeletonMaps.slice(0, 3) : continueMaps).map((map) => (
                     <BigMapCard key={map.id} map={map} />
                   ))}
                 </div>

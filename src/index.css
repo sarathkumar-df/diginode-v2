@@ -3,56 +3,75 @@
 @tailwind utilities;
 
 /* ─── CSS Custom Properties ─────────────────────────────────────────────── */
+/* Design tokens. Layered neutrals + monochrome shadows; brand color used
+ * only for intentional accents. The indigo→violet gradient is reserved for
+ * AI-generation moments (hero CTA, brainstorm primitives) — never decoration.
+ */
 
 :root {
-  /* Canvas */
-  --canvas-bg: #F3F4F8;
-  --canvas-dot: #C7C9DC;
+  /* ─── Surfaces (layered neutrals — 3 levels) ──────────────────────────── */
+  --canvas-bg: #FAFAF9;        /* Page background — warm off-white */
+  --canvas-dot: #E5E5E5;
+  --panel-bg: #FFFFFF;         /* Card / panel resting */
+  --panel-border: #E5E5E5;     /* Hairline */
+  --surface-well: #F4F4F2;     /* Inset wells (search inputs, code, mono badges) */
 
-  /* Panels */
-  --panel-bg: #FFFFFF;
-  --panel-border: #E4E6EE;
-  --panel-shadow: 0 8px 32px rgba(99,102,241,0.08), 0 2px 8px rgba(0,0,0,0.06);
+  /* ─── Ink (text scale) ────────────────────────────────────────────────── */
+  --text-primary: #0A0A0A;
+  --text-secondary: #525252;
+  --text-muted: #A3A3A3;
 
-  /* Text */
-  --text-primary: #1A1D2E;
-  --text-secondary: #5C6070;
-  --text-muted: #9094A8;
+  /* ─── Brand (functional accent — keep usage intentional) ──────────────── */
+  --brand: #4F46E5;
+  --brand-strong: #4338CA;
+  --brand-light: #EEF2FF;
+  --brand-gradient: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
 
-  /* Nodes */
+  /* ─── Elevation (3 real levels — monochrome shadows) ──────────────────── */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.06), 0 16px 32px rgba(0,0,0,0.06);
+
+  /* Legacy alias — older code references --panel-shadow directly */
+  --panel-shadow: var(--shadow-md);
+
+  /* ─── Nodes ───────────────────────────────────────────────────────────── */
   --node-bg: #FFFFFF;
-  --node-shadow: 0 4px 20px rgba(99,102,241,0.10), 0 1px 4px rgba(0,0,0,0.06);
-  --node-shadow-hover: 0 8px 28px rgba(99,102,241,0.16), 0 2px 8px rgba(0,0,0,0.08);
+  --node-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06);
+  --node-shadow-hover: 0 2px 4px rgba(0,0,0,0.06), 0 12px 24px rgba(0,0,0,0.08);
 
-  /* Toolbar */
+  /* ─── Toolbar ─────────────────────────────────────────────────────────── */
   --toolbar-bg: rgba(255, 255, 255, 0.96);
-  --toolbar-border: rgba(228, 230, 238, 0.9);
-
-  /* Brand */
-  --brand: #6366f1;
-  --brand-light: #eef0ff;
+  --toolbar-border: rgba(229, 229, 229, 0.9);
 }
 
 .dark {
-  --canvas-bg: #13141F;
-  --canvas-dot: #22243A;
+  /* Tuned independently — true blacks, not inverted whites; lifted accents */
+  --canvas-bg: #0A0A0A;
+  --canvas-dot: #1F1F1F;
+  --panel-bg: #141414;
+  --panel-border: #262626;
+  --surface-well: #1A1A1A;
 
-  --panel-bg: #1C1E30;
-  --panel-border: #2C2E45;
-  --panel-shadow: 0 8px 32px rgba(0,0,0,0.50);
+  --text-primary: #FAFAFA;
+  --text-secondary: #A3A3A3;
+  --text-muted: #737373;
 
-  --text-primary: #F0F1FA;
-  --text-secondary: #8B8FA8;
-  --text-muted: #5C6080;
+  --brand: #6366F1;            /* Lifted indigo for dark — better contrast */
+  --brand-strong: #4F46E5;
+  --brand-light: #1E1B4B;
 
-  --node-bg: #232538;
-  --node-shadow: 0 4px 20px rgba(0,0,0,0.40), 0 1px 4px rgba(0,0,0,0.25);
-  --node-shadow-hover: 0 8px 28px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 1px 3px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.25);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4), 0 16px 48px rgba(0,0,0,0.3);
+  --panel-shadow: var(--shadow-md);
 
-  --toolbar-bg: rgba(28, 30, 48, 0.97);
-  --toolbar-border: rgba(44, 46, 69, 0.9);
+  --node-bg: #1F1F1F;
+  --node-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.4);
+  --node-shadow-hover: 0 2px 4px rgba(0,0,0,0.4), 0 12px 24px rgba(0,0,0,0.5);
 
-  --brand-light: #2a2c4a;
+  --toolbar-bg: rgba(20, 20, 20, 0.97);
+  --toolbar-border: rgba(38, 38, 38, 0.9);
 }
 
 /* ─── Base ───────────────────────────────────────────────────────────────── */
@@ -107,8 +126,10 @@ html, body, #root {
   animation: skeleton-pulse 1.6s ease-in-out infinite !important;
 }
 
-/* Hide all icons / media — their box (parent) becomes the grey block. */
-[data-skeleton] :is(svg, img, video, canvas, picture) {
+/* Hide all icons / media — their box (parent) becomes the grey block.
+ * Opt-out via [data-skeleton-keep] for decorative SVGs (e.g. the canvas
+ * silhouette in the MapPage skeleton) that should remain visible. */
+[data-skeleton] :is(svg, img, video, canvas, picture):not([data-skeleton-keep]) {
   visibility: hidden !important;
 }
 
@@ -131,11 +152,13 @@ html, body, #root {
 }
 
 /* Opt-out: [data-skeleton-frame] is structural chrome (panels, dividers).
- * The element itself keeps its own background/borders — only its descendants
- * get masked. Nest this on aside/header/toolbar wrappers. */
+ * The element keeps its own background/borders — only its descendants get
+ * masked. We don't reset background/border-color here because the parent
+ * masking rules above only target text elements, inputs, and buttons —
+ * div/aside/header are unaffected, so their inline styles flow through.
+ * (Earlier `revert !important` overrode the inline border-color and made
+ * frame borders fall back to currentColor → near-black.) */
 [data-skeleton] [data-skeleton-frame] {
-  background-color: revert !important;
-  border-color: revert !important;
   animation: none !important;
 }
 

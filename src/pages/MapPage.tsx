@@ -299,9 +299,16 @@ function MapPageSkeleton() {
             <div className="w-8 h-8 rounded-full bg-indigo-500" />
           </div>
 
-          {/* Canvas — faint mind-map silhouette */}
+          {/* Canvas — faint mind-map silhouette. data-skeleton-keep opts out
+              of the global SVG visibility:hidden rule applied by LoadingShell. */}
           <div className="flex-1 relative overflow-hidden flex items-center justify-center">
-            <svg viewBox="0 0 600 360" className="w-3/4 max-w-2xl" fill="none" aria-hidden>
+            <svg
+              data-skeleton-keep
+              viewBox="0 0 600 360"
+              className="w-3/4 max-w-2xl"
+              fill="none"
+              aria-hidden
+            >
               {[
                 'M 300 180 Q 230 130 140 90',
                 'M 300 180 Q 230 230 140 280',
