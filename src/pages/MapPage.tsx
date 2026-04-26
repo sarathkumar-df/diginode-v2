@@ -27,7 +27,7 @@ import { LoadingShell } from '@/components/UI/LoadingShell'
 import { MapPermission } from '@/types'
 import {
   Eye, Layers, Map as MapIcon, ArrowLeft, Plus, Wand2, GitBranch, Workflow,
-  Search, Sparkles, MonitorPlay, Sun, History, Share2, Settings, Download,
+  Search, Sparkles, MonitorPlay, Sun, History, Share2, Settings, Download, Magnet,
 } from 'lucide-react'
 
 const SAVE_DEBOUNCE = 2000
@@ -233,9 +233,110 @@ export function MapPage() {
 // the skeleton automatically — only button counts need to be kept in sync.
 
 const TOOLBAR_ICONS = [
-  Wand2, GitBranch, Workflow, Plus, Search, MapIcon, Layers, Download,
+  Wand2, GitBranch, Workflow, Magnet, Search, MapIcon, Layers, Download,
   Sparkles, MonitorPlay, Sun, History, Share2, Settings,
 ]
+
+// Mind-map-shaped canvas placeholder. Rendered while the real map is
+// fetched — same grammar as the live canvas (rounded pill nodes, curved
+// bezier edges, brand-colored branches) so the load reads as "your map is
+// loading" rather than a generic loading spinner. Colors are dimmed so it
+// can never be mistaken for real content.
+function CanvasSkeletonMap() {
+  const branches = [{ y: 60 }, { y: 130 }, { y: 200 }, { y: 270 }, { y: 340 }]
+  const rootX = 100
+  const rootY = 178
+  const rootW = 150
+  const rootH = 44
+  const childX = 460
+  const childW = 140
+  const childH = 36
+
+  return (
+    <svg
+      data-skeleton-keep
+      viewBox="0 0 720 420"
+      className="w-full max-w-3xl"
+      preserveAspectRatio="xMidYMid meet"
+      fill="none"
+      aria-hidden
+    >
+      {/* Curved bezier edges — draw in on a staggered loop. pathLength=1
+          lets us use unitless dasharray so all paths share the same keyframes
+          regardless of length. Animation rules live in index.css. */}
+      {branches.map((b, i) => {
+        const sx = rootX + rootW
+        const sy = rootY + rootH / 2
+        const ex = childX
+        const ey = b.y + childH / 2
+        const mx = (sx + ex) / 2
+        return (
+          <path
+            key={`e-${i}`}
+            className="skel-edge"
+            d={`M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ey}, ${ex} ${ey}`}
+            stroke="var(--text-muted)"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            pathLength={1}
+            strokeDasharray={1}
+            style={{ ['--skel-delay' as string]: `${i * 0.15}s` }}
+          />
+        )
+      })}
+
+      {/* Root node — static "given". The branches grow out from it. */}
+      <rect
+        x={rootX} y={rootY}
+        width={rootW} height={rootH}
+        rx={11} ry={11}
+        fill="var(--panel-bg)"
+        stroke="#6366f1"
+        strokeWidth={1.5}
+        opacity={0.95}
+      />
+      <rect
+        x={rootX + 18} y={rootY + rootH / 2 - 5}
+        width={rootW - 36} height={10}
+        rx={5} ry={5}
+        fill="#6366f1"
+        opacity={0.32}
+      />
+
+      {/* Child nodes — pop in just after their edge finishes drawing. The
+          group's opacity is animated; inner shapes inherit it. */}
+      {branches.map((b, i) => (
+        <g
+          key={`n-${i}`}
+          className="skel-child"
+          style={{ ['--skel-delay' as string]: `${i * 0.15}s` }}
+        >
+          <rect
+            x={childX} y={b.y}
+            width={childW} height={childH}
+            rx={9} ry={9}
+            fill="var(--panel-bg)"
+            stroke="var(--panel-border)"
+            strokeWidth={1}
+          />
+          <rect
+            x={childX} y={b.y}
+            width={3.5} height={childH}
+            fill="var(--text-muted)"
+            opacity={0.45}
+          />
+          <rect
+            x={childX + 16} y={b.y + childH / 2 - 4}
+            width={childW - 32} height={8}
+            rx={4} ry={4}
+            fill="var(--text-muted)"
+            opacity={0.22}
+          />
+        </g>
+      ))}
+    </svg>
+  )
+}
 
 function MapPageSkeleton() {
   return (
@@ -309,30 +410,12 @@ function MapPageSkeleton() {
             <div className="w-8 h-8 rounded-full bg-indigo-500" />
           </div>
 
-          {/* Canvas — faint mind-map silhouette. data-skeleton-keep opts out
-              of the global SVG visibility:hidden rule applied by LoadingShell. */}
-          <div className="flex-1 relative overflow-hidden flex items-center justify-center">
-            <svg
-              data-skeleton-keep
-              viewBox="0 0 600 360"
-              className="w-3/4 max-w-2xl"
-              fill="none"
-              aria-hidden
-            >
-              {[
-                'M 300 180 Q 230 130 140 90',
-                'M 300 180 Q 230 230 140 280',
-                'M 300 180 Q 380 130 470 80',
-                'M 300 180 Q 400 180 470 180',
-                'M 300 180 Q 380 230 470 280',
-              ].map((d, i) => (
-                <path key={i} d={d} stroke="var(--panel-border)" strokeWidth="2" strokeLinecap="round" />
-              ))}
-              <circle cx={300} cy={180} r={28} fill="var(--panel-border)" />
-              {[[140, 90], [140, 280], [470, 80], [470, 180], [470, 280]].map(([x, y], i) => (
-                <circle key={i} cx={x} cy={y} r={16} fill="var(--panel-border)" />
-              ))}
-            </svg>
+          {/* Canvas — silhouette of the actual mind-map shape (rounded pills
+              + curved colored edges) so the loading state previews what's
+              about to render. data-skeleton-keep opts out of LoadingShell's
+              SVG-hide rule. */}
+          <div className="flex-1 relative overflow-hidden flex items-center justify-center px-12">
+            <CanvasSkeletonMap />
           </div>
         </div>
       </div>

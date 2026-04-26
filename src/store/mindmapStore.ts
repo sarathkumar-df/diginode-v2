@@ -18,6 +18,7 @@ import {
   NodeShape,
   MindMapExport,
 } from '@/types'
+import { useSettingsStore } from '@/store/settingsStore'
 
 const DEFAULT_ROOT_COLOR = '#6366f1'
 const MAX_HISTORY = 50
@@ -252,10 +253,10 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       const parent = nodes.find((n) => n.id === parentId)
       if (parent) {
         level = parent.data.level + 1
+        const siblingIds = edges.filter((e) => e.source === parentId).map((e) => e.target)
         // Level-1 children (direct children of the root) get a fresh branch color.
         // Deeper descendants inherit the parent's color so each branch stays unified.
         if (parent.data.level === 0) {
-          const siblingIds = edges.filter((e) => e.source === parentId).map((e) => e.target)
           const siblingColors = siblingIds
             .map((sid) => nodes.find((n) => n.id === sid)?.data.color)
             .filter((c): c is string => Boolean(c))
@@ -264,9 +265,16 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
           color = parent.data.color
         }
         const hGap = level === 1 ? 230 : 190
+        // Stack below the lowest existing sibling so the new node is visible
+        // even when auto-layout is off. When auto-layout is on, autoLayout()
+        // will redistribute siblings into their proper slots immediately.
+        const siblingYs = siblingIds
+          .map((sid) => nodes.find((n) => n.id === sid)?.position.y)
+          .filter((y): y is number => typeof y === 'number')
+        const y = siblingYs.length > 0 ? Math.max(...siblingYs) + 80 : parent.position.y
         position = {
           x: parent.position.x + hGap,
-          y: parent.position.y,
+          y,
         }
       }
     }
@@ -510,6 +518,11 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
   },
 
   autoLayout: (opts) => {
+    // Implicit calls (add/edit/delete) pass `skipHistory: true`. The manual
+    // Layout button calls without opts. The auto-arrange toggle in the
+    // toolbar gates only the implicit calls — clicking Layout always runs.
+    if (opts?.skipHistory && !useSettingsStore.getState().autoLayoutEnabled) return
+
     const { nodes, edges } = get()
     if (!opts?.skipHistory) get().pushHistory()
 

@@ -25,8 +25,12 @@ const DEFAULT_MODEL: Record<AIProvider, string> = {
 interface SettingsStore {
   provider: AIProvider
   model: string
+  /** When true (default), the canvas auto-arranges after every add/edit/delete.
+   * When false, layout only runs when the user clicks the Layout button. */
+  autoLayoutEnabled: boolean
   setProvider: (p: AIProvider) => void
   setModel: (m: string) => void
+  setAutoLayoutEnabled: (enabled: boolean) => void
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -34,8 +38,10 @@ export const useSettingsStore = create<SettingsStore>()(
     (set) => ({
       provider: 'anthropic',
       model: DEFAULT_MODEL.anthropic,
+      autoLayoutEnabled: true,
       setProvider: (provider) => set({ provider, model: DEFAULT_MODEL[provider] }),
       setModel: (model) => set({ model }),
+      setAutoLayoutEnabled: (autoLayoutEnabled) => set({ autoLayoutEnabled }),
     }),
     { name: 'diginode-settings' }
   )

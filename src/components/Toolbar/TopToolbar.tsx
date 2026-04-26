@@ -1,18 +1,18 @@
 import { useCallback, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Plus, Download, Search, Sun, Moon, Image,
+  Download, Search, Sun, Moon, Image,
   Sparkles, Layers, Map as MapIcon, Wand2, Settings, Workflow, GitBranch,
-  MonitorPlay, FileJson, FileText, ArrowLeft, Check, Share2, History,
+  MonitorPlay, FileJson, FileText, ArrowLeft, Check, Share2, History, Magnet,
 } from 'lucide-react'
-import { useMindMapStore, createDefaultMapData } from '@/store/mindmapStore'
+import { useMindMapStore } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
+import { useSettingsStore } from '@/store/settingsStore'
 import { exportToJSON, exportToMarkdown, exportToPng } from '@/utils/exportUtils'
 import { useReactFlow } from 'reactflow'
-import { createMap as createMapApi, renameMap } from '@/services/mapService'
+import { renameMap } from '@/services/mapService'
 import { PresenceAvatars } from '@/components/UI/PresenceAvatars'
 import { UserMenu } from '@/components/Layout/UserMenu'
-import { MapMeta } from '@/types'
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
@@ -166,7 +166,7 @@ interface Props {
 // ── Main toolbar ──────────────────────────────────────────────────────────────
 
 export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSettings, onOpenShare, onOpenHistory, readOnly = false }: Props) {
-  const { activeMap, nodes, edges, addMapToList, activeMapId, updateMapMeta } = useMindMapStore()
+  const { activeMap, nodes, edges, activeMapId, updateMapMeta } = useMindMapStore()
   const navigate = useNavigate()
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -177,6 +177,8 @@ export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSett
     toggleSearch,
     minimapVisible, toggleMinimap,
   } = useUIStore()
+  const autoLayoutEnabled = useSettingsStore((s) => s.autoLayoutEnabled)
+  const setAutoLayoutEnabled = useSettingsStore((s) => s.setAutoLayoutEnabled)
 
   const { fitView } = useReactFlow()
 
@@ -289,20 +291,18 @@ export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSett
         onClick={() => useMindMapStore.getState().autoLayout()}
         disabled={readOnly}
       />
-
-      <Divider />
-
-      {/* New map */}
       <IconBtn
-        icon={Plus}
-        label="New"
-        onClick={async () => {
-          const { id, title, nodes: n, edges: e } = createDefaultMapData()
-          await createMapApi(id, title, n, e)
-          const meta: MapMeta = { id, title, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), rootColor: '#6366f1' }
-          addMapToList(meta)
-          navigate(`/map/${id}`)
+        icon={Magnet}
+        label={autoLayoutEnabled ? 'Auto: On' : 'Auto: Off'}
+        onClick={() => {
+          // When turning auto-layout back on, run a layout pass immediately
+          // so any nodes the user moved by hand snap into the canonical tree.
+          const next = !autoLayoutEnabled
+          setAutoLayoutEnabled(next)
+          if (next) useMindMapStore.getState().autoLayout()
         }}
+        active={autoLayoutEnabled}
+        disabled={readOnly}
       />
 
       <Divider />

@@ -169,6 +169,46 @@ html, body, #root {
   animation: none !important;
 }
 
+/* Animated mind-map silhouette inside [data-skeleton-keep] SVGs. The global
+ * [data-skeleton] * { animation: none } rule above is intentionally broad,
+ * so we re-enable animation here with stricter selectors and !important.
+ * `--skel-delay` is set per element via inline style to stagger branches. */
+@keyframes skel-edge-draw {
+  0%, 100% { stroke-dashoffset: 1; opacity: 0.15; }
+  30%, 80% { stroke-dashoffset: 0; opacity: 0.55; }
+}
+
+@keyframes skel-node-pop {
+  0%, 100% { opacity: 0; }
+  35%, 85% { opacity: 1; }
+}
+
+[data-skeleton] [data-skeleton-keep] .skel-edge,
+[data-skeleton] [data-skeleton-keep] .skel-child {
+  animation-iteration-count: infinite !important;
+  animation-timing-function: ease-in-out !important;
+  animation-duration: 3.2s !important;
+  animation-delay: var(--skel-delay, 0s) !important;
+  animation-fill-mode: backwards !important;
+}
+
+[data-skeleton] [data-skeleton-keep] .skel-edge {
+  animation-name: skel-edge-draw !important;
+}
+
+[data-skeleton] [data-skeleton-keep] .skel-child {
+  animation-name: skel-node-pop !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-skeleton] [data-skeleton-keep] .skel-edge,
+  [data-skeleton] [data-skeleton-keep] .skel-child {
+    animation: none !important;
+    opacity: 0.55 !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
+
 /* ─── React Flow ─────────────────────────────────────────────────────────── */
 
 /* Animate node position changes (redistributeChildren, addNode, deleteNode) */

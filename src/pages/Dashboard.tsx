@@ -30,13 +30,6 @@ const SORT_LABELS: Record<SortMode, string> = {
   created: 'Date created',
 }
 
-const PROMPT_SUGGESTIONS = [
-  'Decompose this PRD into epics and tickets',
-  'Map dependencies for our Q4 launch',
-  'Plan a 3-month product roadmap',
-  'Brainstorm features for a SaaS app',
-]
-
 // ── Mini map thumbnail SVG ────────────────────────────────────────────────────
 // Deterministic mind-map preview SVG for cards without a captured thumbnail.
 // Uses rootColor + map id as the seed so the same map always renders the
@@ -454,20 +447,36 @@ interface HeroPromptProps {
   onSubmit: (prompt: string) => Promise<void>
   generating: boolean
   error: string | null
-  /** Externally-owned input ref so global keyboard shortcuts can focus it. */
-  inputRef?: React.RefObject<HTMLInputElement>
+  /** Externally-owned textarea ref so global keyboard shortcuts can focus it. */
+  inputRef?: React.RefObject<HTMLTextAreaElement>
 }
 
 function HeroPrompt({ onSubmit, generating, error, inputRef: externalRef }: HeroPromptProps) {
   const [value, setValue] = useState('')
   const [focused, setFocused] = useState(false)
-  const localRef = useRef<HTMLInputElement>(null)
+  const localRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = externalRef ?? localRef
 
   const submit = (text: string) => {
     const trimmed = text.trim()
     if (!trimmed || generating) return
     void onSubmit(trimmed)
+  }
+
+  // Auto-grow up to a sensible cap. Reset to 'auto' first so the textarea
+  // can shrink when the user deletes lines.
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+  }, [value, inputRef])
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      submit(value)
+    }
   }
 
   return (
@@ -484,8 +493,6 @@ function HeroPrompt({ onSubmit, generating, error, inputRef: externalRef }: Hero
         <HeroAmbientMap />
 
         <div className="relative px-6 py-5">
-          {/* Eyebrow — minimal label; the placeholder + chips already
-              communicate the function. Model picker removed (was decoration). */}
           <div className="flex items-center gap-2 mb-3.5">
             <Sparkles size={13} style={{ color: 'var(--brand)' }} />
             <span
@@ -498,28 +505,30 @@ function HeroPrompt({ onSubmit, generating, error, inputRef: externalRef }: Hero
 
           <form
             onSubmit={(e) => { e.preventDefault(); submit(value) }}
-            className="flex items-center gap-2 rounded-xl border pl-3.5 pr-1.5 py-1.5 transition-all"
+            className="flex items-end gap-2 rounded-xl border pl-3.5 pr-1.5 py-1.5 transition-all"
             style={{
               background: 'var(--surface-well)',
               borderColor: focused ? 'var(--brand)' : 'transparent',
               boxShadow: focused ? '0 0 0 3px rgba(79,70,229,0.10)' : 'none',
             }}
           >
-            <input
+            <textarea
               ref={inputRef}
               value={value}
               onChange={(e) => setValue(e.target.value)}
+              onKeyDown={handleKeyDown}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
-              placeholder="Describe a topic, plan, or PRD…"
+              placeholder="Describe a topic, paste a plan, or drop in a PRD…"
               disabled={generating}
-              className="flex-1 bg-transparent outline-none text-[15px] py-1.5"
-              style={{ color: 'var(--text-primary)' }}
+              rows={1}
+              className="flex-1 bg-transparent outline-none text-[15px] py-1.5 resize-none font-sans"
+              style={{ color: 'var(--text-primary)', maxHeight: 200, lineHeight: '1.5' }}
             />
             <button
               type="submit"
               disabled={!value.trim() || generating}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
                 background: 'var(--brand-gradient)',
                 color: 'white',
@@ -534,24 +543,28 @@ function HeroPrompt({ onSubmit, generating, error, inputRef: externalRef }: Hero
             </button>
           </form>
 
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {PROMPT_SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => { setValue(s); submit(s) }}
-                disabled={generating}
-                className="text-[12px] px-2.5 py-1 rounded-md border transition-colors disabled:opacity-50"
-                style={{ borderColor: 'var(--panel-border)', color: 'var(--text-secondary)', background: 'transparent' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-well)' }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
+          <p className="text-[11px] mt-2.5 ml-1 flex items-center gap-1.5 flex-wrap" style={{ color: 'var(--text-muted)' }}>
+            <kbd
+              className="font-mono px-1.5 py-0.5 rounded text-[10px] border"
+              style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)', color: 'var(--text-secondary)' }}
+            >
+              Enter
+            </kbd>
+            to generate
+            <span className="opacity-50">·</span>
+            <kbd
+              className="font-mono px-1.5 py-0.5 rounded text-[10px] border"
+              style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)', color: 'var(--text-secondary)' }}
+            >
+              Shift+Enter
+            </kbd>
+            for new line
+            <span className="opacity-50">·</span>
+            paste up to ~4,000 words
+          </p>
 
           {error && (
-            <p className="text-xs mt-3" style={{ color: '#ef4444' }}>{error}</p>
+            <p className="text-xs mt-2" style={{ color: '#ef4444' }}>{error}</p>
           )}
         </div>
       </div>
@@ -694,7 +707,7 @@ export function Dashboard() {
 
   // Refs for global keyboard shortcuts (N / G / /)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const generateInputRef = useRef<HTMLInputElement>(null)
+  const generateInputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     let cancelled = false
