@@ -10,7 +10,9 @@ import { AppSidebar } from '@/components/Layout/AppSidebar'
 import { ImportModal } from '@/components/UI/ImportModal'
 import { useConfirm } from '@/components/UI/ConfirmModal'
 import { LoadingShell } from '@/components/UI/LoadingShell'
-import { MapMeta, SharedMapMeta, MindMapNode, MindMapEdge } from '@/types'
+import { AdvisorSuggestionModal } from '@/components/UI/AdvisorSuggestionModal'
+import { AdvisorPicker } from '@/components/UI/AdvisorPicker'
+import { MapMeta, SharedMapMeta, MindMapNode, MindMapEdge, MapAdvisor } from '@/types'
 import {
   Plus, Map as MapIcon,
   Trash2, Loader2, Share2, Search,
@@ -705,6 +707,22 @@ export function Dashboard() {
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
 
+  // Pending generation: AI has returned a map but the user hasn't picked an
+  // advisor yet. We hold the built map in memory and finalize via createMap +
+  // navigate only after the suggestion modal closes.
+  const [pendingMap, setPendingMap] = useState<{
+    id: string
+    title: string
+    rootColor: string
+    nodes: MindMapNode[]
+    edges: MindMapEdge[]
+    prompt: string
+  } | null>(null)
+  const [showAdvisorPicker, setShowAdvisorPicker] = useState(false)
+  // Guard so AdvisorSuggestionModal's chained `onPick` + `onClose` only
+  // finalize the pending map once. Reset every time a new pendingMap appears.
+  const decidedRef = useRef(false)
+
   // Refs for global keyboard shortcuts (N / G / /)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const generateInputRef = useRef<HTMLTextAreaElement>(null)
@@ -785,8 +803,9 @@ export function Dashboard() {
     } catch { /* non-fatal */ }
   }
 
-  // Hero: generate a map from a topic prompt, persist via API, then jump
-  // straight into the editor on the new map.
+  // Hero: generate a map from a topic prompt. Holds the built map in
+  // `pendingMap` and shows the advisor suggestion modal; the actual createMap
+  // + navigate only happens once the user picks (or skips) an advisor.
   const handleGenerate = async (prompt: string) => {
     if (generating) return
     setGenerating(true)
@@ -794,19 +813,40 @@ export function Dashboard() {
     try {
       const parsed = await generateMapFromTopic(prompt)
       const built = buildAIMap(parsed, prompt)
-      await createMap(built.id, built.title, built.nodes, built.edges)
-      const meta: MapMeta = {
+      decidedRef.current = false
+      setPendingMap({
         id: built.id,
         title: built.title,
         rootColor: built.rootColor,
+        nodes: built.nodes,
+        edges: built.edges,
+        prompt,
+      })
+    } catch (err: any) {
+      setGenerateError(err?.message ?? 'Failed to generate. Please try again.')
+      setGenerating(false)
+    }
+  }
+
+  // Finalize the pending generation with (or without) an advisor.
+  const finalizePendingMap = async (advisor: MapAdvisor | null) => {
+    if (!pendingMap) return
+    const map = pendingMap
+    setPendingMap(null)
+    try {
+      await createMap(map.id, map.title, map.nodes, map.edges, advisor)
+      const meta: MapMeta = {
+        id: map.id,
+        title: map.title,
+        rootColor: map.rootColor,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
       addMapToList(meta)
       setMaps((prev) => [meta, ...prev])
-      navigate(`/map/${built.id}`)
+      navigate(`/map/${map.id}`)
     } catch (err: any) {
-      setGenerateError(err?.message ?? 'Failed to generate. Please try again.')
+      setGenerateError(err?.message ?? 'Failed to save. Please try again.')
       setGenerating(false)
     }
   }
@@ -1098,6 +1138,47 @@ export function Dashboard() {
         onClose={() => setImportOpen(false)}
         onImport={handleImport}
       />
+
+      {/* Advisor inference: shown after AI generation; either it picks a suggested
+          advisor or routes the user into the full library via Browse all.
+          A `decided` ref guards against onPick + onClose firing back-to-back from
+          the modal so we only finalize once. Closing via X = skip. */}
+      {pendingMap && !showAdvisorPicker && (
+        <AdvisorSuggestionModal
+          open
+          title={pendingMap.title || pendingMap.prompt}
+          text={pendingMap.prompt}
+          onPick={(advisor) => {
+            if (decidedRef.current) return
+            decidedRef.current = true
+            void finalizePendingMap(advisor)
+          }}
+          onClose={() => {
+            if (decidedRef.current) return
+            decidedRef.current = true
+            void finalizePendingMap(null)
+          }}
+          onBrowseAll={() => setShowAdvisorPicker(true)}
+        />
+      )}
+      {pendingMap && showAdvisorPicker && (
+        <AdvisorPicker
+          open
+          current={null}
+          onPick={(advisor) => {
+            if (decidedRef.current) return
+            decidedRef.current = true
+            setShowAdvisorPicker(false)
+            void finalizePendingMap(advisor)
+          }}
+          onClose={() => {
+            if (decidedRef.current) return
+            decidedRef.current = true
+            setShowAdvisorPicker(false)
+            void finalizePendingMap(null)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import {
   Download, Search, Sun, Moon, Image,
   Sparkles, Layers, Map as MapIcon, Wand2, Settings, Workflow, GitBranch,
   MonitorPlay, FileJson, FileText, ArrowLeft, Check, Share2, History, Magnet,
+  MoreHorizontal,
 } from 'lucide-react'
 import { useMindMapStore } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
@@ -152,6 +153,113 @@ function ExportMenu({ title, nodes, edges }: { title: string; nodes: any; edges:
   )
 }
 
+// ── More menu ─────────────────────────────────────────────────────────────────
+// Catch-all dropdown for the less-frequent toolbar actions. Keeps the visible
+// toolbar focused on the high-traffic items (Generate, Search, AI Tools, etc.)
+// while still giving every feature a single-click home. Toggle items show a
+// trailing checkmark when active so the menu doubles as a "what's on" view.
+
+interface MoreMenuItem {
+  icon: React.ElementType
+  label: string
+  onClick: () => void
+  active?: boolean
+  disabled?: boolean
+}
+
+function MoreMenu({ items }: { items: Array<MoreMenuItem | 'divider'> }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Tooltip label="More">
+      <div className="relative flex flex-col items-center">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-all duration-150 min-w-[44px]"
+          style={{
+            background: open ? 'var(--canvas-bg)' : 'transparent',
+            color: open ? 'var(--text-primary)' : 'var(--text-secondary)',
+          }}
+          onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = 'var(--canvas-bg)' }}
+          onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = 'transparent' }}
+        >
+          <MoreHorizontal size={15} />
+          <span className="text-[9px] font-medium leading-none">More</span>
+        </button>
+
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div
+              className="absolute top-full mt-2 right-0 rounded-xl border overflow-hidden z-50 shadow-xl"
+              style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)', minWidth: 200 }}
+            >
+              {items.map((item, i) => {
+                if (item === 'divider') {
+                  return (
+                    <div
+                      key={`d-${i}`}
+                      className="my-1 mx-1 h-px"
+                      style={{ background: 'var(--panel-border)' }}
+                    />
+                  )
+                }
+                const { icon: Icon, label, onClick, active, disabled } = item
+                return (
+                  <button
+                    key={label}
+                    onClick={() => { onClick(); setOpen(false) }}
+                    disabled={disabled}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:hover:bg-transparent"
+                    style={{ color: 'var(--text-primary)' }}
+                  >
+                    <Icon size={13} style={{ color: active ? 'var(--brand)' : 'var(--text-muted)' }} />
+                    <span className="flex-1 text-left">{label}</span>
+                    {active && <Check size={12} style={{ color: 'var(--brand)' }} />}
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </Tooltip>
+  )
+}
+
+// ── Advisor chip ──────────────────────────────────────────────────────────────
+
+function AdvisorChip({ onOpen, readOnly }: { onOpen: () => void; readOnly: boolean }) {
+  const advisor = useMindMapStore((s) => s.advisor)
+  const label = advisor?.label ?? 'Pick an advisor'
+  const active = !!advisor
+
+  return (
+    <Tooltip
+      label={advisor ? 'Change AI advisor' : 'Choose AI advisor for this map'}
+    >
+      <button
+        onClick={onOpen}
+        disabled={readOnly}
+        className="flex items-center gap-1.5 h-8 px-2.5 rounded-full text-xs font-medium border transition-all duration-150 disabled:opacity-40 max-w-[180px]"
+        style={{
+          background: active ? 'var(--brand-light)' : 'transparent',
+          borderColor: active ? 'var(--brand)' : 'var(--panel-border)',
+          color: active ? 'var(--brand)' : 'var(--text-secondary)',
+        }}
+        onMouseEnter={(e) => {
+          if (!active) e.currentTarget.style.borderColor = 'var(--brand)'
+        }}
+        onMouseLeave={(e) => {
+          if (!active) e.currentTarget.style.borderColor = 'var(--panel-border)'
+        }}
+      >
+        <Sparkles size={12} />
+        <span className="truncate">{label}</span>
+      </button>
+    </Tooltip>
+  )
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -160,12 +268,13 @@ interface Props {
   onOpenSettings: () => void
   onOpenShare: () => void
   onOpenHistory: () => void
+  onOpenAdvisor: () => void
   readOnly?: boolean
 }
 
 // ── Main toolbar ──────────────────────────────────────────────────────────────
 
-export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSettings, onOpenShare, onOpenHistory, readOnly = false }: Props) {
+export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSettings, onOpenShare, onOpenHistory, onOpenAdvisor, readOnly = false }: Props) {
   const { activeMap, nodes, edges, activeMapId, updateMapMeta } = useMindMapStore()
   const navigate = useNavigate()
   const [editingTitle, setEditingTitle] = useState(false)
@@ -270,7 +379,12 @@ export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSett
 
       <Divider />
 
-      {/* Create */}
+      {/* AI advisor (always visible — sets persona for every AI call on this map) */}
+      <AdvisorChip onOpen={onOpenAdvisor} readOnly={readOnly} />
+
+      <Divider />
+
+      {/* Primary: high-traffic actions stay inline */}
       <IconBtn
         icon={Wand2}
         label="Generate"
@@ -279,30 +393,11 @@ export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSett
         disabled={readOnly}
       />
       <IconBtn
-        icon={GitBranch}
-        label="Generate Flow"
-        onClick={onOpenFlowGenerate}
+        icon={Sparkles}
+        label="AI Tools"
+        onClick={toggleRightPanel}
+        active={rightPanelOpen}
         accent
-        disabled={readOnly}
-      />
-      <IconBtn
-        icon={Workflow}
-        label="Layout"
-        onClick={() => useMindMapStore.getState().autoLayout()}
-        disabled={readOnly}
-      />
-      <IconBtn
-        icon={Magnet}
-        label={autoLayoutEnabled ? 'Auto: On' : 'Auto: Off'}
-        onClick={() => {
-          // When turning auto-layout back on, run a layout pass immediately
-          // so any nodes the user moved by hand snap into the canonical tree.
-          const next = !autoLayoutEnabled
-          setAutoLayoutEnabled(next)
-          if (next) useMindMapStore.getState().autoLayout()
-        }}
-        active={autoLayoutEnabled}
-        disabled={readOnly}
       />
 
       <Divider />
@@ -310,32 +405,73 @@ export function TopToolbar({ onOpenGenerateModal, onOpenFlowGenerate, onOpenSett
       {/* View */}
       <IconBtn icon={Search} label="Search" shortcut="⌘F" onClick={toggleSearch} />
       <IconBtn icon={MapIcon} label="Fit" shortcut="⌘0" onClick={() => fitView({ duration: 400 })} />
-      <IconBtn icon={Layers} label="Minimap" onClick={toggleMinimap} active={minimapVisible} />
 
       <Divider />
 
-      {/* Export */}
+      {/* Export + Share — both are sharing-adjacent, group them */}
       <ExportMenu title={title} nodes={nodes} edges={edges} />
-
-      <Divider />
-
-      {/* AI + Present */}
-      <IconBtn
-        icon={Sparkles}
-        label="AI Tools"
-        onClick={toggleRightPanel}
-        active={rightPanelOpen}
-        accent
-      />
-      <IconBtn icon={MonitorPlay} label="Present" onClick={handlePresentationMode} />
-
-      <Divider />
-
-      {/* Prefs */}
-      <IconBtn icon={theme === 'light' ? Moon : Sun} label="Theme" onClick={toggleTheme} />
-      <IconBtn icon={History} label="History" onClick={onOpenHistory} />
       <IconBtn icon={Share2} label="Share" onClick={onOpenShare} />
-      <IconBtn icon={Settings} label="Settings" onClick={onOpenSettings} />
+
+      <Divider />
+
+      {/* Everything else */}
+      <MoreMenu
+        items={[
+          {
+            icon: GitBranch,
+            label: 'Generate Flow',
+            onClick: onOpenFlowGenerate,
+            disabled: readOnly,
+          },
+          {
+            icon: Workflow,
+            label: 'Run layout',
+            onClick: () => useMindMapStore.getState().autoLayout(),
+            disabled: readOnly,
+          },
+          {
+            icon: Magnet,
+            label: 'Auto-layout',
+            onClick: () => {
+              // Toggling on runs an immediate pass so user-moved nodes snap
+              // back into the canonical tree.
+              const next = !autoLayoutEnabled
+              setAutoLayoutEnabled(next)
+              if (next) useMindMapStore.getState().autoLayout()
+            },
+            active: autoLayoutEnabled,
+            disabled: readOnly,
+          },
+          'divider',
+          {
+            icon: Layers,
+            label: 'Minimap',
+            onClick: toggleMinimap,
+            active: minimapVisible,
+          },
+          {
+            icon: MonitorPlay,
+            label: 'Present',
+            onClick: handlePresentationMode,
+          },
+          'divider',
+          {
+            icon: theme === 'light' ? Moon : Sun,
+            label: theme === 'light' ? 'Dark theme' : 'Light theme',
+            onClick: toggleTheme,
+          },
+          {
+            icon: History,
+            label: 'Version history',
+            onClick: onOpenHistory,
+          },
+          {
+            icon: Settings,
+            label: 'Settings',
+            onClick: onOpenSettings,
+          },
+        ]}
+      />
 
       {/* Spacer pushes the user menu to the far right */}
       <div className="flex-1" />

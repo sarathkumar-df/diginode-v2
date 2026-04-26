@@ -1,5 +1,9 @@
 import { msalInstance } from '@/auth/AuthProvider'
-import { MapMeta, MindMapNode, MindMapEdge } from '@/types'
+import { MapMeta, MindMapNode, MindMapEdge, MapAdvisor, AIMessage } from '@/types'
+
+// Soft cap on persisted chat history. Keeps the JSONB column from growing
+// unbounded for chatty maps while still preserving the bulk of recent context.
+const CHAT_HISTORY_CAP = 100
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '') + '/api'
 
@@ -42,6 +46,8 @@ export interface FullMap {
   title: string
   nodes: MindMapNode[]
   edges: MindMapEdge[]
+  chatHistory: AIMessage[]
+  advisor: MapAdvisor | null
   createdAt: string
   updatedAt: string
 }
@@ -59,13 +65,14 @@ export async function createMap(
   id: string,
   title: string,
   nodes: MindMapNode[],
-  edges: MindMapEdge[]
+  edges: MindMapEdge[],
+  advisor?: MapAdvisor | null,
 ): Promise<void> {
   const headers = await authHeaders()
   const res = await fetch(`${API_BASE}/maps`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ id, title, data: { nodes, edges } }),
+    body: JSON.stringify({ id, title, data: { nodes, edges }, advisor: advisor ?? null }),
   })
   if (!res.ok) throw new Error('Failed to create map')
 }
@@ -80,20 +87,40 @@ export async function fetchMap(id: string): Promise<FullMap> {
 
 // Save the current node/edge state to the DB. Silently ignores network errors
 // so transient failures don't interrupt the user's editing session.
+// `advisor: null` clears the advisor; omit the key to leave it untouched.
+// `chatHistory` is capped to the most recent N messages to keep the JSONB
+// payload bounded for long sessions.
 export async function saveMap(
   id: string,
   nodes: MindMapNode[],
   edges: MindMapEdge[],
-  thumbnail?: string | null
+  thumbnail?: string | null,
+  advisor?: MapAdvisor | null | undefined,
+  chatHistory?: AIMessage[],
 ): Promise<void> {
   const headers = await authHeaders()
-  const body: Record<string, unknown> = { data: { nodes, edges } }
+  const data: Record<string, unknown> = { nodes, edges }
+  if (chatHistory !== undefined) data.chatHistory = chatHistory.slice(-CHAT_HISTORY_CAP)
+  const body: Record<string, unknown> = { data }
   if (thumbnail) body.thumbnail = thumbnail
+  if (advisor !== undefined) body.advisor = advisor
   await fetch(`${API_BASE}/maps/${id}`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(body),
   }).catch(() => {/* silent — auto-save failures are non-fatal */})
+}
+
+// Update just the advisor on a map. Used when the user changes the advisor
+// from the toolbar — independent of the auto-save debounce so the change
+// applies to the very next AI call.
+export async function updateMapAdvisor(id: string, advisor: MapAdvisor | null): Promise<void> {
+  const headers = await authHeaders()
+  await fetch(`${API_BASE}/maps/${id}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ advisor }),
+  }).catch(() => {/* silent */})
 }
 
 // Update just the title (called from rename UI).

@@ -33,6 +33,9 @@ export interface MindMapNodeData {
   isEditing?: boolean
   editCursorAtEnd?: boolean
   userMoved?: boolean
+  // Per-node advisor override (Phase 3). When present, node-scoped AI calls
+  // (expand, find-gaps, compress) use this advisor instead of the map default.
+  advisor?: MapAdvisor
 }
 
 export type MindMapNode = Node<MindMapNodeData>
@@ -110,6 +113,19 @@ export interface AIGeneratedMap {
 }
 
 export type AIStatus = 'idle' | 'loading' | 'streaming' | 'error'
+
+// ─── Advisor (AI persona) ────────────────────────────────────────────────────
+// A lens applied to every AI call on the map. Persisted on `maps.advisor`.
+// `custom: true` indicates a freeform advisor not in the curated library;
+// in that case the systemFragment is carried on the MapAdvisor itself
+// (curated advisors look theirs up from src/data/advisors.ts at request time).
+export interface MapAdvisor {
+  id: string
+  label: string
+  role: string
+  custom?: boolean
+  systemFragment?: string
+}
 
 // ─── Export Types ────────────────────────────────────────────────────────────
 

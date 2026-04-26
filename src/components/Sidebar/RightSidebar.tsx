@@ -4,11 +4,14 @@ import {
   Sparkles, FileText, PenLine, Wand2,
   RefreshCw, X, Send, StopCircle, Plus, Check, CheckCheck,
   ChevronRight, Quote, Zap, Target, Flame,
-  ShieldAlert, ListOrdered, Scan, Shrink, Search as SearchIcon,
+  ShieldAlert, ListOrdered, Scan, Shrink, Search as SearchIcon, Users,
 } from 'lucide-react'
 import { useUIStore } from '@/store/uiStore'
 import { useMindMapStore } from '@/store/mindmapStore'
+import { useSettingsStore, RIGHT_PANEL_MIN, RIGHT_PANEL_MAX } from '@/store/settingsStore'
 import { useAI, RefineMode, AnalysisMode } from '@/hooks/useAI'
+import { ADVISORS } from '@/data/advisors'
+import { MapAdvisor } from '@/types'
 
 function ThinkingIndicator() {
   return (
@@ -37,8 +40,9 @@ export function RightSidebar() {
   const {
     sendChatMessage, summarize, discoverConnections, writeDocument,
     cancelCurrent, fetchExpandSuggestions, refineExpandSuggestions,
-    addSuggestionNode, addAllSuggestions, runAnalysis,
+    addSuggestionNode, addAllSuggestions, runAnalysis, runDebate,
   } = useAI()
+  const mapAdvisor = useMindMapStore((s) => s.advisor)
   const hasSelectedNode = selectedNodeIds.length === 1
 
   const [tab, setTab] = useState<AITab>('tools')
@@ -84,6 +88,40 @@ export function RightSidebar() {
   const isBusy = aiStatus === 'streaming' || aiStatus === 'loading'
   const allAdded = expandResult != null && expandResult.added.length === expandResult.suggestions.length
 
+  // Resizable: width persists across reloads via settingsStore. We derive the
+  // "live" width from a local ref during a drag so we don't push every mouse-
+  // move into the persisted store; the store is updated only on mouseup.
+  const rightPanelWidth = useSettingsStore((s) => s.rightPanelWidth)
+  const setRightPanelWidth = useSettingsStore((s) => s.setRightPanelWidth)
+  const dragWidthRef = useRef<number | null>(null)
+  const [resizing, setResizing] = useState(false)
+  const [liveWidth, setLiveWidth] = useState<number | null>(null)
+
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setResizing(true)
+    dragWidthRef.current = rightPanelWidth
+    const startX = e.clientX
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = startX - ev.clientX // dragging left = wider (panel is right-anchored)
+      const next = Math.max(RIGHT_PANEL_MIN, Math.min(RIGHT_PANEL_MAX, rightPanelWidth + delta))
+      dragWidthRef.current = next
+      setLiveWidth(next)
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      if (dragWidthRef.current !== null) setRightPanelWidth(dragWidthRef.current)
+      setResizing(false)
+      setLiveWidth(null)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [rightPanelWidth, setRightPanelWidth])
+
+  const effectiveWidth = liveWidth ?? rightPanelWidth
+
   return (
     <AnimatePresence>
       {rightPanelOpen && (
@@ -92,14 +130,39 @@ export function RightSidebar() {
           initial={{ x: 320, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: 320, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-          className="absolute top-0 right-0 h-full w-72 z-40 flex flex-col"
+          // Skip the spring animation while resizing so width tracks the
+          // mouse 1:1 instead of overshooting and bouncing.
+          transition={resizing ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 35 }}
+          className="absolute top-0 right-0 h-full z-40 flex flex-col"
           style={{
+            width: effectiveWidth,
             background: 'var(--panel-bg)',
             borderLeft: '1px solid var(--panel-border)',
             boxShadow: 'var(--panel-shadow)',
           }}
         >
+          {/* Drag handle — thin invisible strip on the left edge that widens
+              the panel when dragged left. Brand-colored stripe shows up on
+              hover/while resizing so it's discoverable but not noisy. */}
+          <div
+            onMouseDown={startResize}
+            title="Drag to resize"
+            className="absolute top-0 left-0 h-full w-1.5 -translate-x-1/2 z-50 group"
+            style={{ cursor: 'ew-resize' }}
+          >
+            <div
+              className="absolute top-0 left-1/2 -translate-x-1/2 h-full w-0.5 transition-colors"
+              style={{
+                background: resizing ? 'var(--brand)' : 'transparent',
+              }}
+            />
+            {!resizing && (
+              <div
+                className="absolute top-0 left-1/2 -translate-x-1/2 h-full w-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ background: 'var(--brand)' }}
+              />
+            )}
+          </div>
           {/* ── Header ───────────────────────────────────────────────── */}
           <div
             className="flex-shrink-0 px-4 pt-4 pb-0 border-b"
@@ -277,6 +340,21 @@ export function RightSidebar() {
                     hasSelectedNode={hasSelectedNode}
                     busy={isBusy}
                     onRun={(mode) => { runAnalysis(mode); setTab('chat') }}
+                  />
+                </Section>
+
+                <Divider />
+
+                {/* Multiple perspectives — debate mode */}
+                <Section>
+                  <SectionHeader icon={Users} title="Multiple Perspectives" />
+                  <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+                    Hear 2–4 advisors weigh in on the same question. Each one stays in their own lens.
+                  </p>
+                  <DebateSetup
+                    busy={isBusy}
+                    mapAdvisor={mapAdvisor}
+                    onRun={(question, advisors) => { runDebate(question, advisors); setTab('chat') }}
                   />
                 </Section>
 
@@ -596,6 +674,139 @@ function AnalyzeGrid({
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/* ── Debate setup (multi-advisor perspective panel) ─────────────────────────── */
+
+const MIN_DEBATE = 2
+const MAX_DEBATE = 4
+
+// Default 3 advisors when the user opens this section: include the map's
+// active advisor when there is one, plus two contrasting lenses. Devil's
+// Advocate is great because it almost always disagrees with whatever the
+// other two say; Senior Engineer grounds idealistic answers in practicality.
+function pickDefaultAdvisors(map: MapAdvisor | null): MapAdvisor[] {
+  const ids: string[] = []
+  if (map) ids.push(map.id)
+  for (const id of ['devils-advocate', 'senior-engineer', 'product-manager']) {
+    if (ids.length >= 3) break
+    if (!ids.includes(id)) ids.push(id)
+  }
+  const result: MapAdvisor[] = []
+  for (const id of ids) {
+    if (map?.id === id) {
+      result.push(map)
+    } else {
+      const a = ADVISORS.find((x) => x.id === id)
+      if (a) result.push({ id: a.id, label: a.label, role: a.role })
+    }
+  }
+  return result.slice(0, MAX_DEBATE)
+}
+
+function DebateSetup({
+  busy, mapAdvisor, onRun,
+}: {
+  busy: boolean
+  mapAdvisor: MapAdvisor | null
+  onRun: (question: string, advisors: MapAdvisor[]) => void
+}) {
+  const [question, setQuestion] = useState('')
+  const [selected, setSelected] = useState<MapAdvisor[]>(() => pickDefaultAdvisors(mapAdvisor))
+
+  // If the map advisor changes (or first appears) and the user hasn't taken
+  // a non-default action, reseed defaults so a new custom advisor shows up.
+  useEffect(() => {
+    setSelected((prev) => {
+      const hasMap = mapAdvisor && prev.some((a) => a.id === mapAdvisor.id)
+      if (mapAdvisor && !hasMap && prev.length < MAX_DEBATE) {
+        return [mapAdvisor, ...prev].slice(0, MAX_DEBATE)
+      }
+      return prev
+    })
+  }, [mapAdvisor])
+
+  const isSelected = (id: string) => selected.some((a) => a.id === id)
+  const canRun = question.trim().length > 0 && selected.length >= MIN_DEBATE && !busy
+
+  // Library = curated advisors + the map's custom advisor (if present), so a
+  // user who wrote a custom lens can still pull it into a debate alongside
+  // curated ones.
+  const library: MapAdvisor[] = [
+    ...(mapAdvisor?.custom ? [mapAdvisor] : []),
+    ...ADVISORS.map((a) => ({ id: a.id, label: a.label, role: a.role })),
+  ]
+
+  const toggle = (advisor: MapAdvisor) => {
+    setSelected((prev) => {
+      if (prev.some((a) => a.id === advisor.id)) {
+        return prev.filter((a) => a.id !== advisor.id)
+      }
+      if (prev.length >= MAX_DEBATE) return prev
+      return [...prev, advisor]
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <textarea
+        value={question}
+        onChange={(e) => setQuestion(e.target.value)}
+        placeholder='Ask one question, e.g. "Should we ship without rate limiting?"'
+        rows={2}
+        className="w-full px-2.5 py-2 rounded-lg border text-xs outline-none resize-none"
+        style={{
+          background: 'var(--canvas-bg)',
+          borderColor: 'var(--panel-border)',
+          color: 'var(--text-primary)',
+        }}
+      />
+
+      <div className="flex flex-wrap gap-1">
+        {library.map((advisor) => {
+          const curated = ADVISORS.find((a) => a.id === advisor.id)
+          const emoji = curated?.emoji ?? (advisor.custom ? '🧠' : '🎯')
+          const active = isSelected(advisor.id)
+          const disabled = !active && selected.length >= MAX_DEBATE
+          return (
+            <button
+              key={advisor.id}
+              onClick={() => toggle(advisor)}
+              disabled={disabled}
+              title={curated?.blurb || advisor.role}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-medium border transition-colors disabled:opacity-30"
+              style={
+                active
+                  ? { background: 'var(--brand-light)', borderColor: 'var(--brand)', color: 'var(--brand)' }
+                  : { background: 'var(--canvas-bg)', borderColor: 'var(--panel-border)', color: 'var(--text-secondary)' }
+              }
+            >
+              <span aria-hidden>{emoji}</span>
+              <span className="truncate max-w-[110px]">{advisor.label}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="flex items-center justify-between pt-1">
+        <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+          {selected.length}/{MAX_DEBATE} selected (min {MIN_DEBATE})
+        </span>
+        <button
+          onClick={() => onRun(question.trim(), selected)}
+          disabled={!canRun}
+          className="px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-40"
+          style={{
+            background: canRun ? 'var(--brand)' : 'var(--canvas-bg)',
+            color: canRun ? 'white' : 'var(--text-muted)',
+            border: canRun ? 'none' : '1px solid var(--panel-border)',
+          }}
+        >
+          Run debate
+        </button>
+      </div>
     </div>
   )
 }

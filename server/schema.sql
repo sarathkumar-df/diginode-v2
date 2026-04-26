@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS maps (
 -- Add thumbnail column to existing deployments (safe to re-run)
 ALTER TABLE maps ADD COLUMN IF NOT EXISTS thumbnail TEXT;
 
+-- Phase 7: Advisor (AI persona) — { id, label, role, custom?: boolean }
+-- Nullable: maps without an advisor fall back to the generic system prompt.
+ALTER TABLE maps ADD COLUMN IF NOT EXISTS advisor JSONB;
+
 -- Index for fast per-user map listing
 CREATE INDEX IF NOT EXISTS maps_owner_updated ON maps (owner_id, updated_at DESC);
 

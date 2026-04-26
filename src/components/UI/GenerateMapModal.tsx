@@ -1,10 +1,13 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles, X, Loader2, Type, FileText } from 'lucide-react'
 import { useMindMapStore, BRANCH_PALETTE } from '@/store/mindmapStore'
 import { generateMapFromTopic, generateMapFromText } from '@/services/aiService'
+import { renameMap, updateMapAdvisor } from '@/services/mapService'
 import { v4 as uuidv4 } from 'uuid'
-import { MindMapNode, MindMapEdge } from '@/types'
+import { MindMapNode, MindMapEdge, MapAdvisor } from '@/types'
+import { AdvisorSuggestionModal } from '@/components/UI/AdvisorSuggestionModal'
+import { AdvisorPicker } from '@/components/UI/AdvisorPicker'
 
 interface AINodeTree {
   label: string
@@ -77,35 +80,39 @@ function buildNodesFromTree(
   return { nodes, edges }
 }
 
+// Replace the currently-open map's content with the AI-generated structure.
+// Keeps the existing `activeMapId` (which matches the URL) so the auto-save
+// in MapPage writes to the right row in Neon. The title is updated both in
+// the local maps list (instant rename in the sidebar) and persisted via
+// renameMap. Auto-save handles nodes/edges; we don't POST a new map.
 function applyGeneratedMap(parsed: any, fallbackTitle: string) {
   const rootId = uuidv4()
+  const newTitle = parsed.title ?? fallbackTitle
   const rootNode: MindMapNode = {
     id: rootId,
     type: 'mindmap',
     position: { x: 0, y: 0 },
-    data: { label: parsed.title ?? fallbackTitle, color: '#6366f1', shape: 'rounded', level: 0 },
+    data: { label: newTitle, color: '#6366f1', shape: 'rounded', level: 0 },
   }
 
   const { nodes: childNodes, edges } = buildNodesFromTree(parsed.nodes ?? [], rootId, { x: 0, y: 0 }, 1)
 
-  const newMap = {
-    id: uuidv4(),
-    title: parsed.title ?? fallbackTitle,
+  const { activeMapId, updateMapMeta } = useMindMapStore.getState()
+
+  // Replace content in place. Don't touch `activeMapId` or `maps` — the row
+  // in Neon already exists for this id; we're just rewriting its data.
+  useMindMapStore.setState({
     nodes: [rootNode, ...childNodes],
     edges,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    theme: 'light' as const,
-  }
-
-  useMindMapStore.setState((s) => ({
-    maps: [...s.maps, newMap],
-    activeMapId: newMap.id,
-    nodes: newMap.nodes,
-    edges: newMap.edges,
     history: [],
     historyIndex: -1,
-  }))
+  })
+
+  if (activeMapId) {
+    updateMapMeta(activeMapId, newTitle)
+    // Fire-and-forget: title persists to Neon. nodes/edges ride the auto-save.
+    void renameMap(activeMapId, newTitle).catch(() => { /* silent */ })
+  }
 
   setTimeout(() => useMindMapStore.getState().autoLayout(), 120)
 }
@@ -124,7 +131,28 @@ export function GenerateMapModal({ open, onClose }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Advisor suggestion overlay: after generation we hold the suggestion title
+  // + seed text and let the user pick before we close. Switching to the full
+  // picker via "Browse all" is a single state flip.
+  const [advisorPrompt, setAdvisorPrompt] = useState<{ title: string; text?: string } | null>(null)
+  const [showAdvisorPicker, setShowAdvisorPicker] = useState(false)
+  const decidedRef = useRef(false)
+
   const handleClose = () => { setError(null); onClose() }
+
+  // Apply the chosen advisor (or null = skip), close the suggestion overlay,
+  // and dismiss the parent modal. Persist to the active map best-effort —
+  // updateMapAdvisor swallows network errors.
+  const finalizeAdvisor = useCallback((advisor: MapAdvisor | null) => {
+    useMindMapStore.getState().setAdvisor(advisor)
+    const activeId = useMindMapStore.getState().activeMapId
+    if (activeId) updateMapAdvisor(activeId, advisor)
+    setAdvisorPrompt(null)
+    setShowAdvisorPicker(false)
+    setTopic('')
+    setPastedText('')
+    handleClose()
+  }, [onClose])
 
   const handleGenerate = useCallback(async () => {
     const isText = genTab === 'text'
@@ -140,19 +168,63 @@ export function GenerateMapModal({ open, onClose }: Props) {
         : await generateMapFromTopic(input)
 
       applyGeneratedMap(parsed, isText ? 'Mind Map' : input)
-      setTopic('')
-      setPastedText('')
-      handleClose()
+      // Hand off to the suggestion overlay before closing — finalizeAdvisor
+      // resets all the input state and closes the modal once the user decides.
+      decidedRef.current = false
+      setAdvisorPrompt({
+        title: parsed?.title || (isText ? 'Mind Map' : input),
+        text: isText ? input : undefined,
+      })
     } catch (err: any) {
       setError(err.message)
     } finally {
       setLoading(false)
     }
-  }, [genTab, topic, pastedText, loading, onClose])
+  }, [genTab, topic, pastedText, loading])
+
+  // While the advisor suggestion overlay is up, keep the parent modal mounted
+  // (so transitions don't tear) but hide its visuals so the user only sees the
+  // suggestion modal on top.
+  const generateHidden = !!advisorPrompt
 
   return (
+    <>
+    {advisorPrompt && !showAdvisorPicker && (
+      <AdvisorSuggestionModal
+        open
+        title={advisorPrompt.title}
+        text={advisorPrompt.text}
+        onPick={(advisor) => {
+          if (decidedRef.current) return
+          decidedRef.current = true
+          finalizeAdvisor(advisor)
+        }}
+        onClose={() => {
+          if (decidedRef.current) return
+          decidedRef.current = true
+          finalizeAdvisor(null)
+        }}
+        onBrowseAll={() => setShowAdvisorPicker(true)}
+      />
+    )}
+    {advisorPrompt && showAdvisorPicker && (
+      <AdvisorPicker
+        open
+        current={null}
+        onPick={(advisor) => {
+          if (decidedRef.current) return
+          decidedRef.current = true
+          finalizeAdvisor(advisor)
+        }}
+        onClose={() => {
+          if (decidedRef.current) return
+          decidedRef.current = true
+          finalizeAdvisor(null)
+        }}
+      />
+    )}
     <AnimatePresence>
-      {open && (
+      {open && !generateHidden && (
         <motion.div
           key="generate-backdrop"
           initial={{ opacity: 0 }}
@@ -299,5 +371,6 @@ export function GenerateMapModal({ open, onClose }: Props) {
         </motion.div>
       )}
     </AnimatePresence>
+    </>
   )
 }

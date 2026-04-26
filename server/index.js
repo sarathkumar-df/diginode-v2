@@ -44,7 +44,59 @@ function aiConfig(req) {
     provider: req.body.provider || 'anthropic',
     apiKey: req.body.apiKey || '',
     model: req.body.model || '',
+    advisor: req.body.advisor || null,
   }
+}
+
+// Prepend the active advisor's framing to an endpoint's instruction.
+// Format clauses in the original instruction (Add-to markers, JSON-only output,
+// etc.) stay at the end so they win over any persona-induced rambling.
+// `advisor` is the curated Advisor record sent by the client (frontend resolves
+// id → systemFragment from src/data/advisors.ts before sending).
+function withAdvisor(instruction, advisor) {
+  if (!advisor) return instruction
+  const fragment = advisor.custom
+    ? sanitizeCustomFragment(advisor.systemFragment)
+    : advisor.systemFragment
+  if (!fragment) return instruction
+  const role = advisor.custom
+    ? sanitizeRoleLabel(advisor.role || advisor.label)
+    : (advisor.role || advisor.label)
+  const lens =
+    `You are advising the user as ${role}. ` +
+    `${fragment} ` +
+    `Apply this lens to your judgment, examples, vocabulary, and what you flag — but always obey any output-format rules in the instructions below.`
+  return `${lens}\n\n${instruction}`
+}
+
+// Strip out the obvious prompt-injection footguns from user-authored advisor
+// text. We're not trying to win an adversarial battle here — just keep an
+// honest user from accidentally writing something the model treats as a new
+// instruction. Length capped at 600 chars; newlines collapsed; common
+// "ignore previous instructions" patterns removed line-by-line.
+const INJECTION_PATTERNS = [
+  /\b(ignore|disregard|forget)\b[^.\n]{0,40}\b(previous|prior|above|all|the|your)\b[^.\n]{0,40}\b(instructions?|rules?|prompts?|context)\b/gi,
+  /\b(you\s+are\s+now|act\s+as|pretend\s+to\s+be|roleplay\s+as)\b[^.\n]{0,80}/gi,
+  /\bsystem\s*[:>]/gi,
+  /<\s*\/?\s*(system|instructions?|prompt)\s*>/gi,
+]
+
+function sanitizeCustomFragment(text) {
+  if (typeof text !== 'string') return ''
+  let cleaned = text.replace(/[\r\n]+/g, ' ').trim()
+  for (const pattern of INJECTION_PATTERNS) cleaned = cleaned.replace(pattern, '')
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim()
+  if (cleaned.length > 600) cleaned = cleaned.slice(0, 600).trim() + '…'
+  return cleaned
+}
+
+function sanitizeRoleLabel(text) {
+  if (typeof text !== 'string') return ''
+  let cleaned = text.replace(/[\r\n]+/g, ' ').trim()
+  for (const pattern of INJECTION_PATTERNS) cleaned = cleaned.replace(pattern, '')
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim()
+  if (cleaned.length > 120) cleaned = cleaned.slice(0, 120).trim() + '…'
+  return cleaned
 }
 
 // ─── SSE helpers ─────────────────────────────────────────────────────────────
@@ -146,31 +198,38 @@ async function callAIJSON({
   return toolUse.input
 }
 
-// Streaming: pipes chunks to res via SSE
-// Caller must wrap in try-catch and NOT have sent headers yet
-async function streamToRes(res, { provider, apiKey, model, system, messages, max_tokens, temperature }) {
+// Stream a single provider call into res via SSE chunks. Does not set up SSE
+// headers, write [DONE], or end the response — callers handle the SSE lifecycle.
+// Used by streamToRes (one-shot) and the /debate endpoint (loops over advisors).
+async function streamOneCallToRes(res, { provider, apiKey, model, system, messages, max_tokens, temperature }) {
   const mdl = resolveModel(provider, model)
-  setupSSE(res)
-  try {
-    if (provider === 'openai') {
-      const sysStr = systemToString(system)
-      const client = getOpenAIClient(apiKey)
-      const msgs = sysStr ? [{ role: 'system', content: sysStr }, ...messages] : messages
-      const stream = await client.chat.completions.create({ model: mdl, messages: msgs, max_tokens, temperature, stream: true })
-      for await (const chunk of stream) {
-        emitChunk(res, chunk.choices[0]?.delta?.content ?? '')
-      }
-    } else {
-      const client = getAnthropicClient(apiKey)
-      const params = { model: mdl, max_tokens, messages, temperature }
-      if (system) params.system = system
-      const stream = client.messages.stream(params)
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta?.text) {
-          emitChunk(res, event.delta.text)
-        }
+  if (provider === 'openai') {
+    const sysStr = systemToString(system)
+    const client = getOpenAIClient(apiKey)
+    const msgs = sysStr ? [{ role: 'system', content: sysStr }, ...messages] : messages
+    const stream = await client.chat.completions.create({ model: mdl, messages: msgs, max_tokens, temperature, stream: true })
+    for await (const chunk of stream) {
+      emitChunk(res, chunk.choices[0]?.delta?.content ?? '')
+    }
+  } else {
+    const client = getAnthropicClient(apiKey)
+    const params = { model: mdl, max_tokens, messages, temperature }
+    if (system) params.system = system
+    const stream = client.messages.stream(params)
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta?.text) {
+        emitChunk(res, event.delta.text)
       }
     }
+  }
+}
+
+// Streaming: pipes chunks to res via SSE
+// Caller must wrap in try-catch and NOT have sent headers yet
+async function streamToRes(res, opts) {
+  setupSSE(res)
+  try {
+    await streamOneCallToRes(res, opts)
     res.write('data: [DONE]\n\n')
   } catch (err) {
     res.write(`data: ${JSON.stringify({ type: 'error', error: errMsg(err) })}\n\n`)
@@ -192,6 +251,24 @@ const SUGGESTION_ARRAY_SCHEMA = {
           icon: { type: 'string', description: 'Single emoji representing the idea' },
         },
         required: ['label'],
+      },
+    },
+  },
+  required: ['suggestions'],
+}
+
+const ADVISOR_SUGGESTIONS_SCHEMA = {
+  type: 'object',
+  properties: {
+    suggestions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'The exact advisor id from the provided list' },
+          reason: { type: 'string', description: 'One-line explanation of why this advisor fits' },
+        },
+        required: ['id', 'reason'],
       },
     },
   },
@@ -429,11 +506,11 @@ app.get('/api/maps', authMiddleware, route(async (req, res) => {
 // POST /api/maps — create a new map (client sends id + initial data)
 app.post('/api/maps', authMiddleware, route(async (req, res) => {
   if (!requireDb(res)) return
-  const { id, title, data } = req.body
+  const { id, title, data, advisor } = req.body
   if (!id || !data) return res.status(400).json({ error: 'id and data are required' })
   await pool.query(
-    `INSERT INTO maps (id, owner_id, title, data) VALUES ($1, $2, $3, $4)`,
-    [id, req.user.id, title || 'Untitled', JSON.stringify(data)]
+    `INSERT INTO maps (id, owner_id, title, data, advisor) VALUES ($1, $2, $3, $4, $5)`,
+    [id, req.user.id, title || 'Untitled', JSON.stringify(data), advisor ? JSON.stringify(advisor) : null]
   )
   res.json({ ok: true, id })
 }))
@@ -442,7 +519,7 @@ app.post('/api/maps', authMiddleware, route(async (req, res) => {
 app.get('/api/maps/:id', authMiddleware, route(async (req, res) => {
   if (!requireDb(res)) return
   const { rows } = await pool.query(
-    `SELECT id, title, data, created_at, updated_at
+    `SELECT id, title, data, advisor, created_at, updated_at
      FROM maps WHERE id = $1 AND owner_id = $2`,
     [req.params.id, req.user.id]
   )
@@ -453,6 +530,8 @@ app.get('/api/maps/:id', authMiddleware, route(async (req, res) => {
     title: r.title,
     nodes: r.data.nodes ?? [],
     edges: r.data.edges ?? [],
+    chatHistory: r.data.chatHistory ?? [],
+    advisor: r.advisor ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   })
@@ -480,7 +559,7 @@ app.post('/api/maps/:id/duplicate', authMiddleware, route(async (req, res) => {
 // When data changes, auto-snapshots a version (throttled: max 1 per 5 minutes).
 app.put('/api/maps/:id', authMiddleware, route(async (req, res) => {
   if (!requireDb(res)) return
-  const { title, data, thumbnail } = req.body
+  const { title, data, thumbnail, advisor } = req.body
 
   const sets = []
   const params = []
@@ -488,6 +567,7 @@ app.put('/api/maps/:id', authMiddleware, route(async (req, res) => {
   if (title !== undefined)     { sets.push(`title=$${i++}`)     ; params.push(title) }
   if (data !== undefined)      { sets.push(`data=$${i++}`)      ; params.push(JSON.stringify(data)) }
   if (thumbnail !== undefined) { sets.push(`thumbnail=$${i++}`) ; params.push(thumbnail) }
+  if (advisor !== undefined)   { sets.push(`advisor=$${i++}`)   ; params.push(advisor === null ? null : JSON.stringify(advisor)) }
 
   if (sets.length === 0) return res.status(400).json({ error: 'Nothing to update' })
 
@@ -736,14 +816,14 @@ app.delete('/api/maps/:mapId/flows/:flowId', authMiddleware, route(async (req, r
 app.post('/api/ai/generate-flow', authMiddleware, route(async (req, res) => {
   const { mapContext } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
 
   const parsed = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 4096,
     temperature: 0.5,
     system: buildSystem(
-      'You are an expert business analyst and process flow designer. You extract entities, processes, systems, and relationships from mind maps and organize them into structured 4-layer swimlane flow diagrams.',
+      withAdvisor('You are an expert business analyst and process flow designer. You extract entities, processes, systems, and relationships from mind maps and organize them into structured 4-layer swimlane flow diagrams.', advisor),
       mapContext,
     ),
     toolName: 'return_flow_diagram',
@@ -795,7 +875,7 @@ CRITICAL layout rules:
 
 // Test connection
 app.post('/api/ai/test-connection', authMiddleware, route(async (req, res) => {
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   console.log(`[test-connection] provider=${provider} model=${resolveModel(provider, model)}`)
   const text = await callAI({
     provider, apiKey,
@@ -807,15 +887,59 @@ app.post('/api/ai/test-connection', authMiddleware, route(async (req, res) => {
   res.json({ ok: true, response: text.trim() })
 }))
 
+// Suggest advisors for a new map. The client sends the catalog so the server
+// stays stateless — adding/removing curated advisors does not require a deploy.
+// Returns 3 ids ranked by fit, each with a one-line "why this fits" reason.
+app.post('/api/ai/suggest-advisors', authMiddleware, route(async (req, res) => {
+  const { title, text, catalog } = req.body
+  if (!title || typeof title !== 'string') return res.status(400).json({ error: 'title is required' })
+  if (!Array.isArray(catalog) || catalog.length === 0) {
+    return res.status(400).json({ error: 'catalog is required (non-empty array)' })
+  }
+  const { provider, apiKey, model } = aiConfig(req)
+
+  const catalogList = catalog
+    .map((a) => `- id: ${a.id} | ${a.label}: ${a.blurb || a.role || ''}`)
+    .join('\n')
+
+  const userContent = `The user is starting a new mind map.
+
+Title: "${title}"
+${text ? `\nSeed text:\n"""\n${String(text).slice(0, 2000)}\n"""\n` : ''}
+Pick the 3 advisors from this catalog whose lens would be most useful for this map.
+
+Catalog:
+${catalogList}
+
+Use the exact id from the catalog. Each reason should be one short sentence (under 20 words) about why this advisor would help on THIS specific topic — no generic platitudes.`
+
+  const result = await callAIJSON({
+    provider, apiKey, model,
+    max_tokens: 384,
+    temperature: 0.4,
+    system: 'You match users to advisors. You read the topic and recommend the lenses that would actually be useful, not generic ones.',
+    messages: [{ role: 'user', content: userContent }],
+    toolName: 'return_advisor_suggestions',
+    toolDescription: 'Return the top 3 advisors from the catalog ranked by fit.',
+    schema: ADVISOR_SUGGESTIONS_SCHEMA,
+  })
+
+  // Validate ids belong to the catalog so a hallucinated id can't break the UI.
+  const validIds = new Set(catalog.map((a) => a.id))
+  const filtered = (result.suggestions ?? []).filter((s) => validIds.has(s.id)).slice(0, 3)
+  res.json({ suggestions: filtered })
+}))
+
 // 0. Generate mind map from pasted text
 app.post('/api/ai/generate-from-text', authMiddleware, route(async (req, res) => {
   const { text } = req.body
   if (!text) return res.status(400).json({ error: 'text is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   const parsed = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 2048,
     temperature: 0.5,
+    system: advisor ? withAdvisor('You generate clear, well-structured mind maps from arbitrary content.', advisor) : undefined,
     toolName: 'return_mindmap',
     toolDescription: 'Return the mind map structure extracted from the content.',
     schema: GENERATED_MAP_SCHEMA,
@@ -836,11 +960,12 @@ ${text.slice(0, 6000)}
 app.post('/api/ai/generate-map', authMiddleware, route(async (req, res) => {
   const { topic } = req.body
   if (!topic) return res.status(400).json({ error: 'topic is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   const parsed = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 2048,
     temperature: 0.7,
+    system: advisor ? withAdvisor('You generate clear, well-structured mind maps for the given topic.', advisor) : undefined,
     toolName: 'return_mindmap',
     toolDescription: 'Return the mind map structure for the given topic.',
     schema: GENERATED_MAP_SCHEMA,
@@ -873,14 +998,14 @@ function buildRefinementClauses(style, excludeLabels) {
 app.post('/api/ai/expand-node', authMiddleware, route(async (req, res) => {
   const { nodeLabel, mapContext, count = 5, style, excludeLabels } = req.body
   if (!nodeLabel) return res.status(400).json({ error: 'nodeLabel is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   const refine = buildRefinementClauses(style, excludeLabels)
   const result = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 512,
     temperature: style === 'ambitious' ? 1.0 : 0.8,
     system: buildSystem(
-      'You are a brainstorming partner helping the user develop their mind map. Use the map context to stay coherent with the user\'s thinking.',
+      withAdvisor('You are a brainstorming partner helping the user develop their mind map. Use the map context to stay coherent with the user\'s thinking.', advisor),
       mapContext,
     ),
     messages: [{
@@ -899,14 +1024,14 @@ app.post('/api/ai/expand-node-with-prompt', authMiddleware, route(async (req, re
   const { nodeLabel, userPrompt, mapContext, count = 5, style, excludeLabels } = req.body
   if (!nodeLabel) return res.status(400).json({ error: 'nodeLabel is required' })
   if (!userPrompt?.trim()) return res.status(400).json({ error: 'userPrompt is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   const refine = buildRefinementClauses(style, excludeLabels)
   const result = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 512,
     temperature: style === 'ambitious' ? 1.0 : 0.8,
     system: buildSystem(
-      'You are a brainstorming partner helping the user develop their mind map. Use the map context to stay coherent with the user\'s thinking.',
+      withAdvisor('You are a brainstorming partner helping the user develop their mind map. Use the map context to stay coherent with the user\'s thinking.', advisor),
       mapContext,
     ),
     messages: [{
@@ -924,13 +1049,13 @@ app.post('/api/ai/expand-node-with-prompt', authMiddleware, route(async (req, re
 app.post('/api/ai/summarize', authMiddleware, route(async (req, res) => {
   const { mapContext } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   await streamToRes(res, {
     provider, apiKey, model,
     max_tokens: 1024,
     temperature: 0.5,
     system: buildSystem(
-      'You write concise, flowing prose summaries of mind maps. Stay faithful to the map\'s structure and notes.',
+      withAdvisor('You write concise, flowing prose summaries of mind maps. Stay faithful to the map\'s structure and notes.', advisor),
       mapContext,
     ),
     messages: [{
@@ -944,7 +1069,7 @@ app.post('/api/ai/summarize', authMiddleware, route(async (req, res) => {
 app.post('/api/ai/chat', authMiddleware, route(async (req, res) => {
   const { userMessage, mapContext, history = [], selectedNodeLabel } = req.body
   if (!userMessage) return res.status(400).json({ error: 'userMessage is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
 
   const focusClause = selectedNodeLabel
     ? ` The user is currently focused on the node labeled "${selectedNodeLabel}" — bias your suggestions toward that area of the map unless the user's message clearly asks about something else.`
@@ -953,7 +1078,7 @@ app.post('/api/ai/chat', authMiddleware, route(async (req, res) => {
   await streamToRes(res, {
     provider, apiKey, model,
     system: buildSystem(
-      `You are an AI assistant helping the user brainstorm and develop their mind map.${focusClause} When suggesting nodes to add, format as: **Add to "[parent node]":** idea 1, idea 2. Use the EXACT node label from the map as the parent. Keep responses concise and actionable.`,
+      withAdvisor(`You are an AI assistant helping the user brainstorm and develop their mind map.${focusClause} When suggesting nodes to add, format as: **Add to "[parent node]":** idea 1, idea 2. Use the EXACT node label from the map as the parent. Keep responses concise and actionable.`, advisor),
       mapContext,
     ),
     messages: [
@@ -969,13 +1094,13 @@ app.post('/api/ai/chat', authMiddleware, route(async (req, res) => {
 app.post('/api/ai/connections', authMiddleware, route(async (req, res) => {
   const { mapContext } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   const result = await callAIJSON({
     provider, apiKey, model,
     max_tokens: 512,
     temperature: 0.6,
     system: buildSystem(
-      'You find non-obvious connections between nodes in the user\'s mind map. Use exact ids from the map when referring to nodes.',
+      withAdvisor('You find non-obvious connections between nodes in the user\'s mind map. Use exact ids from the map when referring to nodes.', advisor),
       mapContext,
       { includeIds: true },
     ),
@@ -1002,7 +1127,7 @@ const ADDITION_FORMAT_NOTE =
 app.post('/api/ai/challenge', authMiddleware, route(async (req, res) => {
   const { mapContext, selectedNodeLabel } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   const scope = selectedNodeLabel
     ? `the "${selectedNodeLabel}" branch specifically`
     : 'this mind map as a whole'
@@ -1011,7 +1136,7 @@ app.post('/api/ai/challenge', authMiddleware, route(async (req, res) => {
     max_tokens: 1024,
     temperature: 0.7,
     system: buildSystem(
-      `You are a rigorous thinking partner. Your job is to poke holes — identify weak assumptions, unstated dependencies, circular reasoning, missing counter-evidence, and places the user is being too optimistic or too narrow. Be candid but constructive. ${ADDITION_FORMAT_NOTE}`,
+      withAdvisor(`You are a rigorous thinking partner. Your job is to poke holes — identify weak assumptions, unstated dependencies, circular reasoning, missing counter-evidence, and places the user is being too optimistic or too narrow. Be candid but constructive. ${ADDITION_FORMAT_NOTE}`, advisor),
       mapContext,
     ),
     messages: [{
@@ -1025,7 +1150,7 @@ app.post('/api/ai/challenge', authMiddleware, route(async (req, res) => {
 app.post('/api/ai/prioritize', authMiddleware, route(async (req, res) => {
   const { mapContext, selectedNodeLabel } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   const scope = selectedNodeLabel
     ? `the "${selectedNodeLabel}" branch`
     : 'this mind map'
@@ -1034,7 +1159,7 @@ app.post('/api/ai/prioritize', authMiddleware, route(async (req, res) => {
     max_tokens: 1024,
     temperature: 0.5,
     system: buildSystem(
-      `You are a decisive advisor who helps the user focus. You rank ideas by impact and effort, name what to do first, and are willing to call out low-value items. ${ADDITION_FORMAT_NOTE}`,
+      withAdvisor(`You are a decisive advisor who helps the user focus. You rank ideas by impact and effort, name what to do first, and are willing to call out low-value items. ${ADDITION_FORMAT_NOTE}`, advisor),
       mapContext,
     ),
     messages: [{
@@ -1049,13 +1174,13 @@ app.post('/api/ai/find-gaps', authMiddleware, route(async (req, res) => {
   const { mapContext, nodeLabel } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
   if (!nodeLabel) return res.status(400).json({ error: 'nodeLabel is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   await streamToRes(res, {
     provider, apiKey, model,
     max_tokens: 768,
     temperature: 0.7,
     system: buildSystem(
-      `You find OBVIOUS gaps a complete thinker would have covered. Focus on sub-topics the user has clearly missed, not creative new ideas. Be blunt about what's missing. ${ADDITION_FORMAT_NOTE}`,
+      withAdvisor(`You find OBVIOUS gaps a complete thinker would have covered. Focus on sub-topics the user has clearly missed, not creative new ideas. Be blunt about what's missing. ${ADDITION_FORMAT_NOTE}`, advisor),
       mapContext,
     ),
     messages: [{
@@ -1070,13 +1195,13 @@ app.post('/api/ai/compress', authMiddleware, route(async (req, res) => {
   const { mapContext, nodeLabel } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
   if (!nodeLabel) return res.status(400).json({ error: 'nodeLabel is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   await streamToRes(res, {
     provider, apiKey, model,
     max_tokens: 1024,
     temperature: 0.4,
     system: buildSystem(
-      `You help the user simplify overgrown branches by proposing umbrella categories that group related children. Keep your prose brief — the value is in the umbrella names, not long explanations. ${ADDITION_FORMAT_NOTE}`,
+      withAdvisor(`You help the user simplify overgrown branches by proposing umbrella categories that group related children. Keep your prose brief — the value is in the umbrella names, not long explanations. ${ADDITION_FORMAT_NOTE}`, advisor),
       mapContext,
     ),
     messages: [{
@@ -1101,7 +1226,7 @@ Rules:
 app.post('/api/ai/write', authMiddleware, route(async (req, res) => {
   const { mapContext, format = 'essay' } = req.body
   if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
-  const { provider, apiKey, model } = aiConfig(req)
+  const { provider, apiKey, model, advisor } = aiConfig(req)
   const instructions = {
     essay: 'Write a well-structured essay with introduction, body paragraphs for each main theme, and conclusion.',
     outline: 'Create a detailed outline with headers and sub-points.',
@@ -1112,7 +1237,7 @@ app.post('/api/ai/write', authMiddleware, route(async (req, res) => {
     max_tokens: 2048,
     temperature: 0.6,
     system: buildSystem(
-      'You turn mind maps into polished written content. Use the map structure as your content guide.',
+      withAdvisor('You turn mind maps into polished written content. Use the map structure as your content guide.', advisor),
       mapContext,
     ),
     messages: [{
@@ -1120,6 +1245,56 @@ app.post('/api/ai/write', authMiddleware, route(async (req, res) => {
       content: instructions[format] || instructions.essay,
     }],
   })
+}))
+
+// 11. Debate (streaming) — runs N advisors sequentially against the same
+// question. Each advisor's response is preceded by an emoji + label header
+// so the existing markdown renderer + apply-chip parser still work per-section.
+app.post('/api/ai/debate', authMiddleware, route(async (req, res) => {
+  const { question, advisors: debateAdvisors, mapContext, selectedNodeLabel } = req.body
+  if (!question || typeof question !== 'string') return res.status(400).json({ error: 'question is required' })
+  if (!Array.isArray(debateAdvisors) || debateAdvisors.length === 0) {
+    return res.status(400).json({ error: 'advisors must be a non-empty array' })
+  }
+  if (debateAdvisors.length > 4) return res.status(400).json({ error: 'at most 4 advisors per debate' })
+  if (!mapContext) return res.status(400).json({ error: 'mapContext is required' })
+  const { provider, apiKey, model } = aiConfig(req)
+
+  const focusClause = selectedNodeLabel
+    ? ` The user is currently focused on the node labeled "${selectedNodeLabel}" — bias your answer toward that area unless the question is clearly about something else.`
+    : ''
+
+  setupSSE(res)
+  try {
+    for (let i = 0; i < debateAdvisors.length; i++) {
+      const advisor = debateAdvisors[i]
+      const emoji = advisor.emoji || (advisor.custom ? '🧠' : '🎯')
+      const label = (advisor.label || advisor.role || 'Advisor').toString().slice(0, 60)
+
+      // Header chunk — leading newline only after the first round so sections
+      // are visually separated in the chat panel without a leading gap.
+      const header = `${i === 0 ? '' : '\n\n'}### ${emoji} ${label}\n\n`
+      emitChunk(res, header)
+
+      await streamOneCallToRes(res, {
+        provider, apiKey, model,
+        max_tokens: 800,
+        temperature: 0.7,
+        system: buildSystem(
+          withAdvisor(
+            `You are one of several advisors weighing in on the user's question. Stay strictly in this advisor's lens — argue from your perspective, not a balanced overview. Be concise (3-6 short paragraphs max).${focusClause} ${ADDITION_FORMAT_NOTE}`,
+            advisor,
+          ),
+          mapContext,
+        ),
+        messages: [{ role: 'user', content: question }],
+      })
+    }
+    res.write('data: [DONE]\n\n')
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ type: 'error', error: errMsg(err) })}\n\n`)
+  }
+  res.end()
 }))
 
 // ─── Team Routes ──────────────────────────────────────────────────────────────
@@ -1462,7 +1637,7 @@ app.get('/api/maps/:id/shared', authMiddleware, route(async (req, res) => {
   if (!permission) return res.status(403).json({ error: 'Access denied' })
 
   const { rows } = await pool.query(
-    `SELECT id, title, data, created_at, updated_at FROM maps WHERE id = $1`,
+    `SELECT id, title, data, advisor, created_at, updated_at FROM maps WHERE id = $1`,
     [req.params.id]
   )
   if (!rows[0]) return res.status(404).json({ error: 'Map not found' })
@@ -1472,6 +1647,8 @@ app.get('/api/maps/:id/shared', authMiddleware, route(async (req, res) => {
     title: r.title,
     nodes: r.data.nodes ?? [],
     edges: r.data.edges ?? [],
+    chatHistory: r.data.chatHistory ?? [],
+    advisor: r.advisor ?? null,
     permission,
     createdAt: r.created_at,
     updatedAt: r.updated_at,

@@ -1,12 +1,40 @@
-import { MindMapExport, AINodeSuggestion, AIConnectionSuggestion, FlowNode, FlowEdge } from '@/types'
+import { MindMapExport, AINodeSuggestion, AIConnectionSuggestion, FlowNode, FlowEdge, MapAdvisor } from '@/types'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useMindMapStore } from '@/store/mindmapStore'
+import { findAdvisor } from '@/data/advisors'
 import { msalInstance } from '@/auth/AuthProvider'
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '') + '/api/ai'
 
+// Resolve a stored MapAdvisor reference into the full payload sent to the
+// server (with systemFragment). Custom advisors carry their own fragment on
+// the stored object; curated entries get theirs from the local catalog so we
+// can extend the library without redeploying the server.
+function resolveAdvisor(a: MapAdvisor | null | undefined) {
+  if (!a) return null
+  if (a.custom) {
+    return {
+      id: a.id,
+      label: a.label,
+      role: a.role,
+      systemFragment: a.systemFragment ?? '',
+      custom: true,
+    }
+  }
+  const curated = findAdvisor(a.id)
+  if (curated) {
+    return { id: curated.id, label: curated.label, role: curated.role, systemFragment: curated.systemFragment }
+  }
+  // Stored as curated but no longer in catalog (legacy). Fall back to the
+  // label/role we have; server's withAdvisor will short-circuit on empty
+  // fragment so it ends up as a no-op rather than a generic-but-misleading lens.
+  return { id: a.id, label: a.label, role: a.role, systemFragment: '' }
+}
+
 function getAIConfig() {
   const { provider, model } = useSettingsStore.getState()
-  return { provider, model }
+  const { advisor } = useMindMapStore.getState()
+  return { provider, model, advisor: resolveAdvisor(advisor) }
 }
 
 // Fetch a fresh Microsoft ID token to authenticate requests against the backend.
@@ -118,12 +146,44 @@ export async function generateMapFromTopic(topic: string): Promise<GeneratedMapT
   return jsonPost('/generate-map', { topic })
 }
 
+// ─── Advisor suggestions ────────────────────────────────────────────────────
+
+export interface AdvisorSuggestion {
+  id: string
+  reason: string
+}
+
+// Suggest 3 advisors for a brand-new map. The client ships the curated catalog
+// so the server can stay stateless — adding new advisors needs no deploy.
+export async function suggestAdvisors(
+  title: string,
+  text?: string,
+): Promise<AdvisorSuggestion[]> {
+  const { ADVISORS } = await import('@/data/advisors')
+  const catalog = ADVISORS.map((a) => ({ id: a.id, label: a.label, blurb: a.blurb, role: a.role }))
+  const result = await jsonPost<{ suggestions: AdvisorSuggestion[] }>(
+    '/suggest-advisors',
+    { title, text, catalog },
+  )
+  return result.suggestions ?? []
+}
+
 export type ExpandStyle = 'concrete' | 'ambitious'
 
 export interface ExpandOptions {
   count?: number
   style?: ExpandStyle
   excludeLabels?: string[]
+  // Per-node advisor override. When provided, this advisor is used instead of
+  // the map-level default for this single call. Pass undefined (or omit) to
+  // inherit the map-level advisor.
+  advisor?: MapAdvisor | null
+}
+
+function buildExpandBody(extra: Record<string, unknown>, advisor: MapAdvisor | null | undefined) {
+  const body: Record<string, unknown> = { ...extra }
+  if (advisor !== undefined) body.advisor = resolveAdvisor(advisor)
+  return body
 }
 
 export async function expandNode(
@@ -131,7 +191,8 @@ export async function expandNode(
   mapContext: MindMapExport,
   opts: ExpandOptions = {},
 ): Promise<AINodeSuggestion[]> {
-  return jsonPost('/expand-node', { nodeLabel, mapContext, ...opts })
+  const { advisor, ...rest } = opts
+  return jsonPost('/expand-node', buildExpandBody({ nodeLabel, mapContext, ...rest }, advisor))
 }
 
 export async function expandNodeWithPrompt(
@@ -140,7 +201,8 @@ export async function expandNodeWithPrompt(
   mapContext: MindMapExport,
   opts: ExpandOptions = {},
 ): Promise<AINodeSuggestion[]> {
-  return jsonPost('/expand-node-with-prompt', { nodeLabel, userPrompt, mapContext, ...opts })
+  const { advisor, ...rest } = opts
+  return jsonPost('/expand-node-with-prompt', buildExpandBody({ nodeLabel, userPrompt, mapContext, ...rest }, advisor))
 }
 
 export async function summarizeMap(
@@ -404,6 +466,44 @@ export async function writeFromMap(
   return streamPost('/write', { mapContext, format }, onChunk, signal)
 }
 
+// ─── Multi-advisor debate ───────────────────────────────────────────────────
+
+// Resolve an array of stored MapAdvisors into the full payload sent to the
+// debate endpoint. Includes `emoji` (from the curated catalog) so the server
+// can render a recognisable section header per advisor.
+function resolveDebateAdvisors(advisors: MapAdvisor[]) {
+  return advisors.map((a) => {
+    const base = resolveAdvisor(a)
+    if (!base) return null
+    const curated = a.custom ? null : findAdvisor(a.id)
+    return { ...base, emoji: curated?.emoji ?? (a.custom ? '🧠' : '🎯') }
+  }).filter((x): x is NonNullable<typeof x> => x !== null)
+}
+
+export async function debateMap(
+  question: string,
+  advisors: MapAdvisor[],
+  mapContext: MindMapExport,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal,
+  selectedNodeLabel?: string,
+): Promise<void> {
+  return streamPost(
+    '/debate',
+    {
+      question,
+      advisors: resolveDebateAdvisors(advisors),
+      mapContext,
+      selectedNodeLabel,
+      // Debate uses its own per-round advisor; explicitly null the map-level
+      // one so it doesn't confuse the server's withAdvisor wrapper.
+      advisor: null,
+    },
+    onChunk,
+    signal,
+  )
+}
+
 // ─── Brainstorming primitives ───────────────────────────────────────────────
 
 export async function challengeMap(
@@ -429,8 +529,9 @@ export async function findGaps(
   mapContext: MindMapExport,
   onChunk: (text: string) => void,
   signal?: AbortSignal,
+  advisor?: MapAdvisor | null,
 ): Promise<void> {
-  return streamPost('/find-gaps', { mapContext, nodeLabel }, onChunk, signal)
+  return streamPost('/find-gaps', buildExpandBody({ mapContext, nodeLabel }, advisor), onChunk, signal)
 }
 
 export async function compressBranch(
@@ -438,6 +539,7 @@ export async function compressBranch(
   mapContext: MindMapExport,
   onChunk: (text: string) => void,
   signal?: AbortSignal,
+  advisor?: MapAdvisor | null,
 ): Promise<void> {
-  return streamPost('/compress', { mapContext, nodeLabel }, onChunk, signal)
+  return streamPost('/compress', buildExpandBody({ mapContext, nodeLabel }, advisor), onChunk, signal)
 }

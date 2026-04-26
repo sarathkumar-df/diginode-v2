@@ -17,6 +17,7 @@ import {
   NodeColor,
   NodeShape,
   MindMapExport,
+  MapAdvisor,
 } from '@/types'
 import { useSettingsStore } from '@/store/settingsStore'
 
@@ -76,6 +77,7 @@ interface MindMapStore {
   // Active map content (the map currently open in the editor)
   nodes: MindMapNode[]
   edges: MindMapEdge[]
+  advisor: MapAdvisor | null
 
   // History
   history: HistoryEntry[]
@@ -91,7 +93,8 @@ interface MindMapStore {
   removeMap: (id: string) => void
 
   // ── Active map management ─────────────────────────────────────────────────
-  loadMap: (map: { id: string; nodes: MindMapNode[]; edges: MindMapEdge[] }) => void
+  loadMap: (map: { id: string; nodes: MindMapNode[]; edges: MindMapEdge[]; advisor?: MapAdvisor | null }) => void
+  setAdvisor: (advisor: MapAdvisor | null) => void
 
   // ── Getters ───────────────────────────────────────────────────────────────
   activeMap: () => MapMeta | null
@@ -113,6 +116,7 @@ interface MindMapStore {
   updateNodeIcon: (nodeId: string, icon: string) => void
   updateNodeShape: (nodeId: string, shape: NodeShape) => void
   updateNodeNotes: (nodeId: string, notes: string) => void
+  updateNodeAdvisor: (nodeId: string, advisor: MapAdvisor | null) => void
   toggleNodeChecked: (nodeId: string) => void
   toggleNodeCollapsed: (nodeId: string) => void
   setNodeEditing: (nodeId: string, editing: boolean) => void
@@ -142,6 +146,7 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
   activeMapId: null,
   nodes: [],
   edges: [],
+  advisor: null,
   history: [],
   historyIndex: -1,
   layoutVersion: 0,
@@ -165,7 +170,7 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
 
   // ── Active map management ─────────────────────────────────────────────────
 
-  loadMap: ({ id, nodes, edges }) => {
+  loadMap: ({ id, nodes, edges, advisor = null }) => {
     // Backfill explicit source/target handle IDs on legacy edges so React Flow
     // doesn't auto-pick a different handle per child (which causes inconsistent
     // routing — e.g. one sibling edge entering the top, others entering the left).
@@ -174,8 +179,10 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       sourceHandle: e.sourceHandle ?? 'right',
       targetHandle: e.targetHandle ?? 'left',
     }))
-    set({ activeMapId: id, nodes, edges: normalizedEdges, history: [], historyIndex: -1 })
+    set({ activeMapId: id, nodes, edges: normalizedEdges, advisor, history: [], historyIndex: -1 })
   },
+
+  setAdvisor: (advisor) => set({ advisor }),
 
   // ── Getters ───────────────────────────────────────────────────────────────
 
@@ -646,6 +653,19 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
     }))
   },
 
+  // Set or clear the per-node advisor override. `null` removes the field
+  // entirely so the node falls back to the map-level advisor.
+  updateNodeAdvisor: (nodeId, advisor) => {
+    get().pushHistory()
+    set((state) => ({
+      nodes: state.nodes.map((n) => {
+        if (n.id !== nodeId) return n
+        const { advisor: _drop, ...rest } = n.data
+        return { ...n, data: advisor ? { ...rest, advisor } : rest }
+      }),
+    }))
+  },
+
   toggleNodeChecked: (nodeId) => {
     set((state) => ({
       nodes: state.nodes.map((n) =>
@@ -912,6 +932,7 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       activeMapId: null,
       nodes: [],
       edges: [],
+      advisor: null,
       history: [],
       historyIndex: -1,
       layoutVersion: 0,

@@ -72,6 +72,8 @@ export async function fetchSharedMap(mapId: string) {
   return res.json() as Promise<{
     id: string; title: string
     nodes: any[]; edges: any[]
+    chatHistory: import('@/types').AIMessage[]
+    advisor: import('@/types').MapAdvisor | null
     permission: MapPermission
     createdAt: string; updatedAt: string
   }>

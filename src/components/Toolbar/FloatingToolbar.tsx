@@ -1,9 +1,10 @@
-import { useCallback } from 'react'
-import { Trash2, Plus, GitBranch, CheckSquare, Sparkles } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { Trash2, Plus, GitBranch, CheckSquare, Sparkles, UserCircle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useMindMapStore } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
-import { NODE_COLORS } from '@/types'
+import { NODE_COLORS, MapAdvisor } from '@/types'
+import { AdvisorPicker } from '@/components/UI/AdvisorPicker'
 
 function ToolBtn({
   icon: Icon,
@@ -36,10 +37,14 @@ function ToolBtn({
 
 export function FloatingToolbar() {
   const { selectedNodeIds } = useUIStore()
-  const { addNode, addSiblingNode, deleteNode, updateNodeColor } = useMindMapStore()
+  const { addNode, addSiblingNode, deleteNode, updateNodeColor, updateNodeAdvisor } = useMindMapStore()
   const { toggleRightPanel } = useUIStore()
+  const [advisorPickerOpen, setAdvisorPickerOpen] = useState(false)
 
   const nodeId = selectedNodeIds[0]
+  // Re-read on every render so the chip reflects updates immediately after
+  // the user picks an advisor for this node.
+  const nodeAdvisor = useMindMapStore((s) => s.nodes.find((n) => n.id === nodeId)?.data.advisor)
 
   const handleAddChild = useCallback(() => nodeId && addNode(nodeId), [nodeId, addNode])
   const handleAddSibling = useCallback(() => nodeId && addSiblingNode(nodeId), [nodeId, addSiblingNode])
@@ -54,6 +59,10 @@ export function FloatingToolbar() {
       ),
     }))
   }, [nodeId])
+
+  const handlePickAdvisor = useCallback((advisor: MapAdvisor | null) => {
+    if (nodeId) updateNodeAdvisor(nodeId, advisor)
+  }, [nodeId, updateNodeAdvisor])
 
   if (!nodeId) return null
 
@@ -91,11 +100,23 @@ export function FloatingToolbar() {
         <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
         <ToolBtn icon={Sparkles} label="AI Expand" onClick={toggleRightPanel} color="#6366f1" />
+        <ToolBtn
+          icon={UserCircle}
+          label={nodeAdvisor ? `Advising as ${nodeAdvisor.label} — click to change` : 'Ask a different advisor for this node'}
+          onClick={() => setAdvisorPickerOpen(true)}
+          color={nodeAdvisor ? '#6366f1' : undefined}
+        />
 
         <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
         <ToolBtn icon={Trash2} label="Delete (Backspace)" onClick={handleDelete} danger />
       </motion.div>
+      <AdvisorPicker
+        open={advisorPickerOpen}
+        current={nodeAdvisor ?? null}
+        onClose={() => setAdvisorPickerOpen(false)}
+        onPick={handlePickAdvisor}
+      />
     </AnimatePresence>
   )
 }

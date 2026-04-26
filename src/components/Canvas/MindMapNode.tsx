@@ -5,6 +5,7 @@ import { ChevronRight, ChevronDown, CheckSquare, Square } from 'lucide-react'
 import { useMindMapStore } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
 import { MindMapNodeData, NodeShape } from '@/types'
+import { findAdvisor } from '@/data/advisors'
 
 const SHAPE_CLASSES: Record<NodeShape, string> = {
   rounded: 'rounded-xl',
@@ -184,6 +185,28 @@ function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>
 
       {/* Content */}
       <NodeContent id={id} data={data} />
+
+      {/* Advisor override chip — visible at all times when this node has its
+          own advisor lens. Click bubbles up so the floating toolbar's picker
+          handles editing; we only need to make the user aware it's overridden. */}
+      {data.advisor && (() => {
+        const curated = findAdvisor(data.advisor.id)
+        const emoji = curated?.emoji ?? '🧠'
+        return (
+          <div
+            title={`Advising as ${data.advisor.label}`}
+            className="advisor-chip absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs select-none pointer-events-none"
+            style={{
+              background: 'var(--panel-bg)',
+              border: `2px solid ${data.color}`,
+              boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+            }}
+            aria-hidden
+          >
+            {emoji}
+          </div>
+        )
+      })()}
 
       {/* Collapse toggle (show only if has children) */}
       {data.collapsed !== undefined && (

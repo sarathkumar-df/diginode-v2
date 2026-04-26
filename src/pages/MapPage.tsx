@@ -13,12 +13,14 @@ import { FocusModeBar } from '@/components/UI/FocusMode'
 import { GenerateMapModal } from '@/components/UI/GenerateMapModal'
 import { SettingsModal } from '@/components/UI/SettingsModal'
 import { ShareModal } from '@/components/UI/ShareModal'
+import { AdvisorPicker } from '@/components/UI/AdvisorPicker'
 import { VersionHistoryPanel } from '@/components/UI/VersionHistoryPanel'
 import { PresentationMode } from '@/components/UI/PresentationMode'
 import { FlowPreviewModal } from '@/components/Flow/FlowPreviewModal'
 import { useUIStore } from '@/store/uiStore'
 import { useMindMapStore } from '@/store/mindmapStore'
-import { saveMap } from '@/services/mapService'
+import { saveMap, updateMapAdvisor } from '@/services/mapService'
+import { MapAdvisor } from '@/types'
 import { captureThumb } from '@/utils/captureThumb'
 import { fetchSharedMap } from '@/services/shareService'
 import { RoomProvider, presenceColor } from '@/liveblocks.config'
@@ -26,8 +28,8 @@ import { useCurrentUser } from '@/auth/AuthProvider'
 import { LoadingShell } from '@/components/UI/LoadingShell'
 import { MapPermission } from '@/types'
 import {
-  Eye, Layers, Map as MapIcon, ArrowLeft, Plus, Wand2, GitBranch, Workflow,
-  Search, Sparkles, MonitorPlay, Sun, History, Share2, Settings, Download, Magnet,
+  Eye, Layers, Map as MapIcon, ArrowLeft, Plus, Wand2,
+  Search, Sparkles, Share2, Download, MoreHorizontal,
 } from 'lucide-react'
 
 const SAVE_DEBOUNCE = 2000
@@ -36,7 +38,7 @@ function MapPageInner() {
   const { mapId } = useParams<{ mapId: string }>()
   const navigate = useNavigate()
   const { theme } = useUIStore()
-  const { nodes, edges, activeMapId, activeMap, loadMap, setMapList, maps } = useMindMapStore()
+  const { nodes, edges, activeMapId, activeMap, loadMap, setMapList, maps, advisor, setAdvisor } = useMindMapStore()
   const currentUser = useCurrentUser()
   const { fitView, getViewport, setViewport } = useReactFlow()
 
@@ -45,6 +47,7 @@ function MapPageInner() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [advisorOpen, setAdvisorOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [permission, setPermission] = useState<MapPermission>('edit')
@@ -52,6 +55,13 @@ function MapPageInner() {
 
   const isDirtyRef = useRef(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  // Tracks which slice of state was last persisted, so we can skip the
+  // expensive thumbnail capture when only the chat history changed.
+  const lastSavedRef = useRef({ nodes, edges })
+  // Read chat history reactively so it triggers the auto-save effect without
+  // pulling the whole uiStore into this component.
+  const aiMessages = useUIStore((s) => s.aiMessages)
+  const aiStatus = useUIStore((s) => s.aiStatus)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -68,7 +78,10 @@ function MapPageInner() {
       try {
         const data = await fetchSharedMap(mapId!)
         if (!cancelled) {
-          loadMap({ id: data.id, nodes: data.nodes, edges: data.edges })
+          loadMap({ id: data.id, nodes: data.nodes, edges: data.edges, advisor: data.advisor ?? null })
+          // Hydrate the chat panel with this map's saved history. Wipes any
+          // chat from a previously-open map so conversations don't leak across.
+          useUIStore.getState().setAIMessages(data.chatHistory ?? [])
           setPermission(data.permission)
           setMapList(
             maps.some((m) => m.id === data.id)
@@ -103,19 +116,37 @@ function MapPageInner() {
   useEffect(() => {
     if (!isDirtyRef.current) { isDirtyRef.current = true; return }
     if (!activeMapId || permission !== 'edit') return
+    // While a chat is mid-stream, aiMessages updates ~50x/sec as chunks arrive.
+    // Each one resets this debounce, so the save naturally fires only after
+    // streaming pauses. Avoids saving partial mid-stream content.
+    if (aiStatus === 'streaming') return
     clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
-      // Zoom to fit all nodes, capture thumbnail, then restore viewport
-      const prevViewport = getViewport()
-      fitView({ duration: 0, padding: 0.15 })
-      // Wait two frames for React Flow to apply the new viewport
-      await new Promise<void>((r) => { requestAnimationFrame(() => { requestAnimationFrame(() => r()) }) })
-      const thumb = await captureThumb()
-      setViewport(prevViewport, { duration: 0 })
-      saveMap(activeMapId, nodes, edges, thumb)
+      const nodesOrEdgesChanged =
+        lastSavedRef.current.nodes !== nodes || lastSavedRef.current.edges !== edges
+      let thumb: string | null = null
+      if (nodesOrEdgesChanged) {
+        // Zoom to fit all nodes, capture thumbnail, then restore viewport.
+        // Skipped when only the chat changed — thumbnails capture the canvas.
+        const prevViewport = getViewport()
+        fitView({ duration: 0, padding: 0.15 })
+        await new Promise<void>((r) => { requestAnimationFrame(() => { requestAnimationFrame(() => r()) }) })
+        thumb = await captureThumb()
+        setViewport(prevViewport, { duration: 0 })
+      }
+      saveMap(activeMapId, nodes, edges, thumb, undefined, aiMessages)
+      lastSavedRef.current = { nodes, edges }
     }, SAVE_DEBOUNCE)
     return () => clearTimeout(saveTimerRef.current)
-  }, [nodes, edges])
+  }, [nodes, edges, aiMessages, aiStatus])
+
+  // Apply + persist a new advisor (or null to clear). Updates the store
+  // immediately so the next AI call uses the new lens, and writes to the DB
+  // independently of the auto-save debounce.
+  const handleAdvisorChange = (next: MapAdvisor | null) => {
+    setAdvisor(next)
+    if (activeMapId) updateMapAdvisor(activeMapId, next)
+  }
 
   if (loading) {
     return <MapPageSkeleton />
@@ -164,6 +195,7 @@ function MapPageInner() {
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenShare={() => setShareOpen(true)}
             onOpenHistory={() => setHistoryOpen(true)}
+            onOpenAdvisor={() => setAdvisorOpen(true)}
             readOnly={isViewOnly}
           />
 
@@ -198,6 +230,12 @@ function MapPageInner() {
               mapId={activeMapId ?? ''}
             />
             <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+            <AdvisorPicker
+              open={advisorOpen}
+              current={advisor}
+              onClose={() => setAdvisorOpen(false)}
+              onPick={handleAdvisorChange}
+            />
             <ShareModal
               open={shareOpen}
               onClose={() => setShareOpen(false)}
@@ -232,9 +270,10 @@ export function MapPage() {
 // grey blocks. Future UI changes to the toolbar or sidebar layout flow into
 // the skeleton automatically — only button counts need to be kept in sync.
 
+// Mirrors the live TopToolbar's primary buttons (the ones that stay inline
+// outside the More dropdown). Keep this in sync if the toolbar layout shifts.
 const TOOLBAR_ICONS = [
-  Wand2, GitBranch, Workflow, Magnet, Search, MapIcon, Layers, Download,
-  Sparkles, MonitorPlay, Sun, History, Share2, Settings,
+  Wand2, Sparkles, Search, MapIcon, Download, Share2, MoreHorizontal,
 ]
 
 // Mind-map-shaped canvas placeholder. Rendered while the real map is

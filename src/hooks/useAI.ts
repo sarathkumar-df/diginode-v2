@@ -14,9 +14,10 @@ import {
   prioritizeMap,
   findGaps,
   compressBranch,
+  debateMap,
   ExpandStyle,
 } from '@/services/aiService'
-import { AIMessage, AIFeature, AINodeSuggestion, MindMapExport } from '@/types'
+import { AIMessage, AIFeature, AINodeSuggestion, MapAdvisor, MindMapExport } from '@/types'
 
 export type RefineMode = 'more' | 'concrete' | 'ambitious' | 'regenerate'
 
@@ -31,7 +32,13 @@ type AnalysisRunner =
     }
   | {
       kind: 'node-scoped'
-      fn: (nodeLabel: string, ctx: MindMapExport, onChunk: (t: string) => void, signal: AbortSignal) => Promise<void>
+      fn: (
+        nodeLabel: string,
+        ctx: MindMapExport,
+        onChunk: (t: string) => void,
+        signal: AbortSignal,
+        advisor?: MapAdvisor | null,
+      ) => Promise<void>
     }
 
 export function useAI() {
@@ -79,9 +86,10 @@ export function useAI() {
     setExpandResult(null)
 
     try {
+      const nodeAdvisor = node.data.advisor
       const suggestions = userPrompt?.trim()
-        ? await expandNodeWithPrompt(node.data.label, userPrompt.trim(), exportMap())
-        : await expandNode(node.data.label, exportMap())
+        ? await expandNodeWithPrompt(node.data.label, userPrompt.trim(), exportMap(), { advisor: nodeAdvisor })
+        : await expandNode(node.data.label, exportMap(), { advisor: nodeAdvisor })
       setAIStatus('idle')
       if (suggestions.length > 0) {
         setExpandResult({
@@ -116,9 +124,13 @@ export function useAI() {
       undefined
 
     try {
+      // Refines target the same node as the original expand call, so look up
+      // the override here instead of remembering it across the chain.
+      const refineNode = useMindMapStore.getState().nodes.find((n) => n.id === current.nodeId)
+      const refineAdvisor = refineNode?.data.advisor
       const suggestions = current.userPrompt
-        ? await expandNodeWithPrompt(current.nodeName, current.userPrompt, exportMap(), { style, excludeLabels })
-        : await expandNode(current.nodeName, exportMap(), { style, excludeLabels })
+        ? await expandNodeWithPrompt(current.nodeName, current.userPrompt, exportMap(), { style, excludeLabels, advisor: refineAdvisor })
+        : await expandNode(current.nodeName, exportMap(), { style, excludeLabels, advisor: refineAdvisor })
       setAIStatus('idle')
       if (suggestions.length === 0) return true
 
@@ -325,7 +337,10 @@ export function useAI() {
       if (runner.kind === 'map-wide') {
         await runner.fn(exportMap(), onChunk, abortRef.current.signal, selectedLabel)
       } else {
-        await runner.fn(selectedLabel!, exportMap(), onChunk, abortRef.current.signal)
+        // Node-scoped primitives (find-gaps, compress) honor the per-node
+        // advisor override when set; otherwise the map-level advisor applies.
+        const nodeAdvisor = selectedNode?.data.advisor
+        await runner.fn(selectedLabel!, exportMap(), onChunk, abortRef.current.signal, nodeAdvisor)
       }
       setAIStatus('idle')
     } catch (err: any) {
@@ -378,6 +393,62 @@ export function useAI() {
     }
   }, [exportMap, addAIMessage, updateLastAIMessage, setAIStatus, setAIError, ensurePanelOpen])
 
+  // ── Multi-advisor debate ───────────────────────────────────────────────────
+
+  const runDebate = useCallback(async (question: string, advisors: MapAdvisor[]) => {
+    if (!question.trim() || advisors.length === 0) return
+
+    const userMsg: AIMessage = {
+      id: uuidv4(),
+      role: 'user',
+      content: question.trim(),
+      timestamp: new Date().toISOString(),
+    }
+    addAIMessage(userMsg)
+
+    const placeholderMsg: AIMessage = {
+      id: uuidv4(),
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      feature: 'brainstorm',
+    }
+    addAIMessage(placeholderMsg)
+
+    setAIStatus('streaming')
+    setAIError(null)
+    ensurePanelOpen()
+    abortRef.current = new AbortController()
+
+    const selectedId = useUIStore.getState().selectedNodeIds[0]
+    const selectedNodeLabel = selectedId
+      ? useMindMapStore.getState().nodes.find((n) => n.id === selectedId)?.data.label
+      : undefined
+
+    try {
+      await debateMap(
+        question.trim(),
+        advisors,
+        exportMap(),
+        (chunk) => {
+          updateLastAIMessage(
+            (useUIStore.getState().aiMessages.at(-1)?.content ?? '') + chunk
+          )
+        },
+        abortRef.current.signal,
+        selectedNodeLabel,
+      )
+      setAIStatus('idle')
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setAIStatus('error')
+        setAIError(err.message)
+      } else {
+        setAIStatus('idle')
+      }
+    }
+  }, [exportMap, addAIMessage, updateLastAIMessage, setAIStatus, setAIError, ensurePanelOpen])
+
   return {
     fetchExpandSuggestions,
     refineExpandSuggestions,
@@ -388,6 +459,7 @@ export function useAI() {
     discoverConnections,
     writeDocument,
     runAnalysis,
+    runDebate,
     cancelCurrent,
   }
 }

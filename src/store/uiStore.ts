@@ -59,6 +59,9 @@ interface UIStore {
   setAIStatus: (status: AIStatus) => void
   setAIError: (error: string | null) => void
   clearAIMessages: () => void
+  /** Replace the entire chat history. Used by MapPage to hydrate from a
+   * map's saved chat when it loads, and to wipe between map switches. */
+  setAIMessages: (messages: AIMessage[]) => void
 
   // Expand-node suggestion result (shared between NodeAIPopover and RightSidebar)
   expandResult: ExpandResult | null
@@ -136,6 +139,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setAIStatus: (status) => set({ aiStatus: status }),
   setAIError: (error) => set({ aiError: error }),
   clearAIMessages: () => set({ aiMessages: [], aiError: null }),
+  setAIMessages: (messages) => set({ aiMessages: messages }),
 
   expandResult: null,
   setExpandResult: (result) => set({ expandResult: result }),
