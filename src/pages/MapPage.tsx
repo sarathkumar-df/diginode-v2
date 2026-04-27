@@ -33,6 +33,10 @@ import {
 } from 'lucide-react'
 
 const SAVE_DEBOUNCE = 2000
+// Thumbnails are captured on a much longer cadence than data saves because the
+// fitView + html-to-image flow briefly perturbs the live viewport. Doing it on
+// every save (2s) caused a visible jerk while the user was typing/dragging.
+const THUMBNAIL_IDLE = 15000
 
 function MapPageInner() {
   const { mapId } = useParams<{ mapId: string }>()
@@ -55,9 +59,11 @@ function MapPageInner() {
 
   const isDirtyRef = useRef(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>()
-  // Tracks which slice of state was last persisted, so we can skip the
-  // expensive thumbnail capture when only the chat history changed.
-  const lastSavedRef = useRef({ nodes, edges })
+  const thumbTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  // Tracks the last-thumbnailed graph so we don't recapture if nothing
+  // structural has changed (e.g. only chat history moved).
+  const lastThumbRef = useRef<{ nodes: typeof nodes; edges: typeof edges } | null>(null)
+  const thumbInFlightRef = useRef(false)
   // Read chat history reactively so it triggers the auto-save effect without
   // pulling the whole uiStore into this component.
   const aiMessages = useUIStore((s) => s.aiMessages)
@@ -113,6 +119,10 @@ function MapPageInner() {
     return () => { cancelled = true }
   }, [mapId])
 
+  // ── Auto-save (data only) ────────────────────────────────────────────────
+  // Persists nodes/edges/chat on a short debounce. Crucially, this path NEVER
+  // touches the viewport — the thumbnail flow is split out below so it can't
+  // jerk the canvas while the user is still typing/dragging.
   useEffect(() => {
     if (!isDirtyRef.current) { isDirtyRef.current = true; return }
     if (!activeMapId || permission !== 'edit') return
@@ -121,24 +131,63 @@ function MapPageInner() {
     // streaming pauses. Avoids saving partial mid-stream content.
     if (aiStatus === 'streaming') return
     clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(async () => {
-      const nodesOrEdgesChanged =
-        lastSavedRef.current.nodes !== nodes || lastSavedRef.current.edges !== edges
-      let thumb: string | null = null
-      if (nodesOrEdgesChanged) {
-        // Zoom to fit all nodes, capture thumbnail, then restore viewport.
-        // Skipped when only the chat changed — thumbnails capture the canvas.
-        const prevViewport = getViewport()
-        fitView({ duration: 0, padding: 0.15 })
-        await new Promise<void>((r) => { requestAnimationFrame(() => { requestAnimationFrame(() => r()) }) })
-        thumb = await captureThumb()
-        setViewport(prevViewport, { duration: 0 })
-      }
-      saveMap(activeMapId, nodes, edges, thumb, undefined, aiMessages)
-      lastSavedRef.current = { nodes, edges }
+    saveTimerRef.current = setTimeout(() => {
+      saveMap(activeMapId, nodes, edges, undefined, undefined, aiMessages)
     }, SAVE_DEBOUNCE)
     return () => clearTimeout(saveTimerRef.current)
   }, [nodes, edges, aiMessages, aiStatus])
+
+  // ── Background thumbnail capture ─────────────────────────────────────────
+  // Heavier than the data save because it briefly fitView()s the canvas, runs
+  // html-to-image on the DOM, then restores the viewport. We only do it when
+  // the user can't see the flicker:
+  //  • after a long idle window (no edits for THUMBNAIL_IDLE ms), OR
+  //  • when the tab is backgrounded (visibilitychange → hidden).
+  useEffect(() => {
+    if (!activeMapId || permission !== 'edit') return
+
+    const captureAndSave = async () => {
+      if (thumbInFlightRef.current) return
+      const { nodes: liveNodes, edges: liveEdges } = useMindMapStore.getState()
+      // Skip if the graph hasn't changed since the last thumbnail.
+      if (
+        lastThumbRef.current &&
+        lastThumbRef.current.nodes === liveNodes &&
+        lastThumbRef.current.edges === liveEdges
+      ) return
+      thumbInFlightRef.current = true
+      try {
+        const prevViewport = getViewport()
+        fitView({ duration: 0, padding: 0.15 })
+        await new Promise<void>((r) => { requestAnimationFrame(() => { requestAnimationFrame(() => r()) }) })
+        const thumb = await captureThumb()
+        setViewport(prevViewport, { duration: 0 })
+        if (thumb) {
+          saveMap(activeMapId, liveNodes, liveEdges, thumb)
+          lastThumbRef.current = { nodes: liveNodes, edges: liveEdges }
+        }
+      } finally {
+        thumbInFlightRef.current = false
+      }
+    }
+
+    // Long-idle fallback: reschedule on every node/edge change.
+    clearTimeout(thumbTimerRef.current)
+    thumbTimerRef.current = setTimeout(captureAndSave, THUMBNAIL_IDLE)
+
+    // Tab-hidden trigger: capture immediately so the dashboard reflects the
+    // latest state next time the user lands there. They can't see the flicker
+    // because the page isn't visible.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') captureAndSave()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      clearTimeout(thumbTimerRef.current)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [activeMapId, permission, nodes, edges, fitView, getViewport, setViewport])
 
   // Apply + persist a new advisor (or null to clear). Updates the store
   // immediately so the next AI call uses the new lens, and writes to the DB

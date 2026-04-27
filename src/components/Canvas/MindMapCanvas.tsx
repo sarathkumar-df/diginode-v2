@@ -52,6 +52,7 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
     clearSelection,
     setInspectorNode,
     setDropTargetId,
+    setAIPopoverNode,
     presentationMode,
     presentationIndex,
     presentationOrder,
@@ -137,7 +138,8 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
   const handlePaneClick = useCallback(() => {
     clearSelection()
     setInspectorNode(null)
-  }, [clearSelection, setInspectorNode])
+    setAIPopoverNode(null)
+  }, [clearSelection, setInspectorNode, setAIPopoverNode])
 
   const handleSelectionChange = useCallback(
     ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: any[]; edges: any[] }) => {
@@ -151,7 +153,7 @@ export function MindMapCanvas({ readOnly = false }: { readOnly?: boolean }) {
     [setSelectedNodes, setSelectedEdges, setInspectorNode]
   )
 
-  // Record which node the drag started from + the initial pointer position
+  // Record which node the drag started from + the initial pointer position.
   const handleConnectStart: OnConnectStart = useCallback((event, { nodeId }) => {
     if (!nodeId) {
       connectSource.current = null

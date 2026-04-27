@@ -2,22 +2,29 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { NodeToolbar, Position } from 'reactflow'
 import { Sparkles, Send, Loader2 } from 'lucide-react'
 import { useUIStore } from '@/store/uiStore'
+import { useMindMapStore } from '@/store/mindmapStore'
 import { useAI } from '@/hooks/useAI'
 
 const POPOVER_INPUT_ID = 'node-ai-popover-input'
 
 export function NodeAIPopover() {
-  const { selectedNodeIds, aiStatus } = useUIStore()
+  const { aiPopoverNodeId, setAIPopoverNode, aiStatus } = useUIStore()
   const { fetchExpandSuggestions } = useAI()
 
   const [prompt, setPrompt] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const nodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : null
+  const nodeId = aiPopoverNodeId
+  const node = useMindMapStore((s) => (nodeId ? s.nodes.find((n) => n.id === nodeId) : undefined))
 
-  // Clear the input whenever selection changes so the popover starts fresh per node
+  // Reset the input + auto-focus it whenever a different node opens the popover.
   useEffect(() => {
     setPrompt('')
+    if (nodeId) {
+      // Defer one tick so NodeToolbar has rendered before we focus.
+      const id = setTimeout(() => inputRef.current?.focus(), 0)
+      return () => clearTimeout(id)
+    }
   }, [nodeId])
 
   // Listen for a global "focus the popover input" request (Cmd/Ctrl+K)
@@ -47,13 +54,18 @@ export function NodeAIPopover() {
       handleSubmitPrompt()
     } else if (e.key === 'Escape') {
       e.preventDefault()
-      inputRef.current?.blur()
+      // Close the popover entirely on Escape (matches the new "explicit open"
+      // model — pressing Escape should dismiss the AI UI, not just blur the input).
+      setAIPopoverNode(null)
     }
     // Prevent canvas shortcuts (Tab adds child, etc.) from firing while typing
     e.stopPropagation()
-  }, [handleSubmitPrompt])
+  }, [handleSubmitPrompt, setAIPopoverNode])
 
-  if (!nodeId) return null
+  // Render only when the user has explicitly opened the popover via the
+  // hover-revealed sparkle button on the node. Selection/edit state alone
+  // never triggers it.
+  if (!nodeId || !node) return null
 
   return (
     <NodeToolbar

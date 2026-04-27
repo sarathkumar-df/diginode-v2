@@ -290,6 +290,11 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       id: newId,
       type: 'mindmap',
       position,
+      // Force React Flow's own selection onto the new child. Without this,
+      // React Flow's internal selection still points at the parent (whose
+      // handle was clicked) and a subsequent onSelectionChange races with our
+      // setSelectedNodes call, leaving the AI popover anchored to the parent.
+      selected: true,
       data: { label, color, shape: 'rounded', level, isEditing: true },
     }
 
@@ -306,7 +311,10 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       : undefined
 
     set((state) => ({
-      nodes: [...state.nodes, newNode],
+      nodes: [
+        ...state.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+        newNode,
+      ],
       edges: newEdge ? [...state.edges, newEdge] : state.edges,
     }))
 
@@ -359,6 +367,9 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       id: newId,
       type: 'mindmap',
       position: snappedPosition,
+      // See addNode above — own React Flow's selection so the AI popover
+      // doesn't race onto the parent.
+      selected: true,
       data: { label, color, shape: 'rounded', level, isEditing: true },
     }
 
@@ -375,7 +386,10 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       : undefined
 
     set((state) => ({
-      nodes: [...state.nodes, newNode],
+      nodes: [
+        ...state.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+        newNode,
+      ],
       edges: newEdge ? [...state.edges, newEdge] : state.edges,
     }))
 

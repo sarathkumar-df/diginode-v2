@@ -52,12 +52,23 @@ export function useKeyboard() {
       switch (e.key) {
         case 'Tab':
           e.preventDefault()
-          if (selectedId) addNode(selectedId)
+          if (selectedId) {
+            const newId = addNode(selectedId)
+            // Select the new child so the AI popover follows it (the child is
+            // in edit mode so the popover stays hidden — keeps the canvas
+            // around the new node clear while the user types its label).
+            useUIStore.getState().setSelectedNodes([newId])
+            useUIStore.getState().setInspectorNode(newId)
+          }
           break
 
         case 'Enter':
           e.preventDefault()
-          if (selectedId) addSiblingNode(selectedId)
+          if (selectedId) {
+            const newId = addSiblingNode(selectedId)
+            useUIStore.getState().setSelectedNodes([newId])
+            useUIStore.getState().setInspectorNode(newId)
+          }
           break
 
         case 'Backspace':

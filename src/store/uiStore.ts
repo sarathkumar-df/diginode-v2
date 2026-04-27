@@ -50,6 +50,13 @@ interface UIStore {
   dropTargetId: string | null
   setDropTargetId: (id: string | null) => void
 
+  // The node whose AI popover is currently open. The popover is no longer
+  // tied to selection — instead, hovering a node reveals a small sparkle
+  // button, and clicking that button is what opens the popover. Selecting,
+  // editing, or adding a node never surfaces the popover on its own.
+  aiPopoverNodeId: string | null
+  setAIPopoverNode: (id: string | null) => void
+
   // AI panel state
   aiMessages: AIMessage[]
   aiStatus: AIStatus
@@ -69,6 +76,10 @@ interface UIStore {
   appendExpandSuggestions: (suggestions: AINodeSuggestion[]) => void
   markExpandSuggestionAdded: (index: number) => void
   markAllExpandSuggestionsAdded: () => void
+
+  // Floating toolbar drag offset (session-only, relative to its anchored position)
+  floatingToolbarOffset: { x: number; y: number }
+  setFloatingToolbarOffset: (offset: { x: number; y: number }) => void
 
   // Minimap
   minimapVisible: boolean
@@ -127,6 +138,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
   dropTargetId: null,
   setDropTargetId: (id) => set({ dropTargetId: id }),
 
+  aiPopoverNodeId: null,
+  setAIPopoverNode: (id) => set({ aiPopoverNodeId: id }),
+
   aiMessages: [],
   aiStatus: 'idle',
   aiError: null,
@@ -167,6 +181,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
     }
   }),
 
+  floatingToolbarOffset: { x: 0, y: 0 },
+  setFloatingToolbarOffset: (offset) => set({ floatingToolbarOffset: offset }),
+
   minimapVisible: false,
   toggleMinimap: () => set((s) => ({ minimapVisible: !s.minimapVisible })),
 
@@ -194,10 +211,12 @@ export const useUIStore = create<UIStore>((set, get) => ({
     searchResults: [],
     inspectorNodeId: null,
     dropTargetId: null,
+    aiPopoverNodeId: null,
     aiMessages: [],
     aiStatus: 'idle',
     aiError: null,
     expandResult: null,
+    floatingToolbarOffset: { x: 0, y: 0 },
     presentationMode: false,
     presentationIndex: 0,
     presentationOrder: [],

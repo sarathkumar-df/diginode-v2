@@ -1,7 +1,7 @@
 import { memo, useCallback, useRef, useEffect, useState } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { motion } from 'framer-motion'
-import { ChevronRight, ChevronDown, CheckSquare, Square } from 'lucide-react'
+import { ChevronRight, ChevronDown, CheckSquare, Square, Sparkles } from 'lucide-react'
 import { useMindMapStore } from '@/store/mindmapStore'
 import { useUIStore } from '@/store/uiStore'
 import { MindMapNodeData, NodeShape } from '@/types'
@@ -130,7 +130,7 @@ function NodeContent({ id, data }: { id: string; data: MindMapNodeData }) {
 
 function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>) {
   const { toggleNodeCollapsed } = useMindMapStore()
-  const { focusMode, selectedNodeIds, setInspectorNode, presentationMode, presentationOrder, presentationIndex, dropTargetId } = useUIStore()
+  const { focusMode, selectedNodeIds, setInspectorNode, setAIPopoverNode, aiPopoverNodeId, presentationMode, presentationOrder, presentationIndex, dropTargetId } = useUIStore()
   const isSelected = selected || selectedNodeIds.includes(id)
   const isRoot = data.level === 0
   const shapeClass = SHAPE_CLASSES[data.shape ?? 'rounded']
@@ -139,6 +139,12 @@ function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>
   const isPresentationDimmed = presentationMode && presentationOrder[presentationIndex] !== id
   const isDropTarget = dropTargetId === id
 
+  const [hovered, setHovered] = useState(false)
+  // The sparkle button is visible while the user hovers the node — and stays
+  // visible while the popover for this node is open, so the affordance reads
+  // as "this node has the AI panel attached."
+  const showAIButton = !data.isEditing && !presentationMode && (hovered || aiPopoverNodeId === id)
+
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
@@ -146,6 +152,14 @@ function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>
       useUIStore.getState().setSelectedNodes([id])
     },
     [id, setInspectorNode]
+  )
+
+  const handleOpenAI = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      setAIPopoverNode(aiPopoverNodeId === id ? null : id)
+    },
+    [id, aiPopoverNodeId, setAIPopoverNode]
   )
 
   return (
@@ -169,6 +183,8 @@ function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>
         position: 'relative',
       }}
       onClick={handleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       {/* Target handles — accept connections from any direction */}
       <Handle type="target" position={Position.Left} id="left" />
@@ -182,6 +198,35 @@ function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>
         id="right"
         title="Drag to create a connected node"
       />
+
+      {/* Hover-revealed AI launcher. The button sits above the node, with an
+          invisible "bridge" filling the visual gap between the two. Both live
+          inside the node's motion.div, so moving the cursor up to click the
+          button never leaves the node's hover scope (the gap would otherwise
+          fire onMouseLeave and dismiss the button before it could be clicked). */}
+      {showAIButton && (
+        <div
+          aria-hidden
+          className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center"
+          style={{ top: -36 }}
+        >
+          <button
+            onClick={handleOpenAI}
+            onMouseDown={(e) => e.stopPropagation()}
+            title="Ask AI about this node"
+            aria-label="Open AI prompt for this node"
+            className="w-6 h-6 rounded-full flex items-center justify-center text-white shadow-md transition-transform hover:scale-110"
+            style={{
+              background: 'var(--brand)',
+              boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)',
+            }}
+          >
+            <Sparkles size={11} />
+          </button>
+          {/* Transparent 12px bridge between the button and the node body. */}
+          <div className="w-10 h-3" />
+        </div>
+      )}
 
       {/* Content */}
       <NodeContent id={id} data={data} />
