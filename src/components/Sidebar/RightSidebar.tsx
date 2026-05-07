@@ -49,6 +49,14 @@ export function RightSidebar() {
   const [input, setInput] = useState('')
   const [writeFormat, setWriteFormat] = useState<'essay' | 'outline' | 'bullets'>('essay')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 80)}px`
+  }, [input, tab])
 
   const handleExpand = useCallback(() => {
     fetchExpandSuggestions()
@@ -529,13 +537,14 @@ export function RightSidebar() {
                 style={{ borderColor: 'var(--panel-border)', background: 'var(--canvas-bg)' }}
               >
                 <textarea
+                  ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Ask anything about your map…"
                   rows={1}
                   disabled={isBusy}
-                  className="flex-1 resize-none bg-transparent outline-none text-xs leading-relaxed"
+                  className="flex-1 resize-none bg-transparent outline-none text-xs leading-relaxed overflow-y-auto"
                   style={{ color: 'var(--text-primary)', maxHeight: 80 }}
                 />
                 {aiStatus === 'streaming' ? (
