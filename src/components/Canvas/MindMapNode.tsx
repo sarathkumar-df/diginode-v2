@@ -27,15 +27,63 @@ function NodeContent({ id, data }: { id: string; data: MindMapNodeData }) {
     setLocalLabel(data.label)
   }, [data.label, data.isEditing])
 
+  // While true, any blur on the textarea is treated as a stray focus-shift
+  // (React Flow auto-focuses the node wrapper after a connect/select) and
+  // re-focused. Cleared on first keypress or when the user blurs intentionally
+  // after the grace window.
+  const justEnteredEditingRef = useRef(false)
+
   useEffect(() => {
-    if (data.isEditing && inputRef.current) {
-      inputRef.current.focus()
+    if (!data.isEditing || !inputRef.current) return
+    justEnteredEditingRef.current = true
+
+    // React Flow's selection change programmatically focuses the node wrapper
+    // <div tabindex="0">, which lands AFTER one rAF and steals focus from our
+    // textarea. To win, focus the textarea on a short polling chain that runs
+    // for ~250ms — re-focus whenever the textarea isn't the active element.
+    let cancelled = false
+    let pollTimer: ReturnType<typeof setTimeout> | undefined
+    const start = Date.now()
+
+    const focusInput = () => {
+      const el = inputRef.current
+      if (!el) return
+      el.focus()
       if (data.editCursorAtEnd) {
-        const end = inputRef.current.value.length
-        inputRef.current.setSelectionRange(end, end)
+        const end = el.value.length
+        el.setSelectionRange(end, end)
       } else {
-        inputRef.current.select()
+        el.select()
       }
+    }
+
+    const poll = () => {
+      if (cancelled) return
+      const el = inputRef.current
+      if (!el) return
+      if (document.activeElement !== el) {
+        focusInput()
+      }
+      if (Date.now() - start < 250) {
+        pollTimer = setTimeout(poll, 16)
+      }
+    }
+
+    // First focus on the next frame, then keep reclaiming for 250ms
+    const raf = requestAnimationFrame(() => {
+      focusInput()
+      pollTimer = setTimeout(poll, 16)
+    })
+
+    const clearTimer = setTimeout(() => {
+      justEnteredEditingRef.current = false
+    }, 400)
+
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      if (pollTimer) clearTimeout(pollTimer)
+      clearTimeout(clearTimer)
     }
   }, [data.isEditing, data.editCursorAtEnd])
 
@@ -50,6 +98,18 @@ function NodeContent({ id, data }: { id: string; data: MindMapNodeData }) {
   }, [data.isEditing, localLabel])
 
   const handleBlur = useCallback(() => {
+    // Stray blur right after entering edit mode — React Flow auto-focuses the
+    // node wrapper div on selection change, which blurs our textarea. Reclaim
+    // focus and stay in edit mode instead of committing.
+    if (justEnteredEditingRef.current) {
+      requestAnimationFrame(() => {
+        const el = inputRef.current
+        if (!el) return
+        el.focus()
+        el.select()
+      })
+      return
+    }
     const trimmed = localLabel.trim()
     if (trimmed) updateNodeLabel(id, trimmed)
     else setLocalLabel(data.label)
@@ -58,6 +118,9 @@ function NodeContent({ id, data }: { id: string; data: MindMapNodeData }) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // The user is engaging with the textarea — stop the blur-reclaim guard
+      // so a deliberate Enter/blur commits the edit normally.
+      justEnteredEditingRef.current = false
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         inputRef.current?.blur()

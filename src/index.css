@@ -366,6 +366,10 @@ html, body, #root {
   min-width: 80px;
   box-sizing: border-box;
   display: block;
+  /* Override the parent .mindmap-node's user-select: none so the placeholder
+     "New Topic" text can be selected/highlighted when entering edit mode. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* ─── Scrollbars ─────────────────────────────────────────────────────────── */
