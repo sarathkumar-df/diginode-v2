@@ -12,7 +12,7 @@ export function NodeAIPopover() {
   const { fetchExpandSuggestions } = useAI()
 
   const [prompt, setPrompt] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const nodeId = aiPopoverNodeId
   const node = useMindMapStore((s) => (nodeId ? s.nodes.find((n) => n.id === nodeId) : undefined))
@@ -26,6 +26,15 @@ export function NodeAIPopover() {
       return () => clearTimeout(id)
     }
   }, [nodeId])
+
+  // Auto-grow the textarea to fit its content (capped so the popover doesn't
+  // overflow the canvas).
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+  }, [prompt, nodeId])
 
   // Listen for a global "focus the popover input" request (Cmd/Ctrl+K)
   useEffect(() => {
@@ -48,8 +57,8 @@ export function NodeAIPopover() {
     fetchExpandSuggestions(nodeId, trimmed)
   }, [nodeId, isBusy, prompt, fetchExpandSuggestions])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmitPrompt()
     } else if (e.key === 'Escape') {
@@ -90,7 +99,7 @@ export function NodeAIPopover() {
         {isBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
       </button>
 
-      <input
+      <textarea
         id={POPOVER_INPUT_ID}
         data-ai-popover-input
         ref={inputRef}
@@ -99,7 +108,8 @@ export function NodeAIPopover() {
         onKeyDown={handleKeyDown}
         placeholder="Ask AI about this node…"
         disabled={isBusy}
-        className="w-56 px-2.5 py-1.5 rounded-lg text-xs outline-none border bg-transparent"
+        rows={1}
+        className="w-56 px-2.5 py-1.5 rounded-lg text-xs outline-none border bg-transparent resize-none leading-relaxed overflow-y-auto"
         style={{
           borderColor: 'var(--panel-border)',
           color: 'var(--text-primary)',
