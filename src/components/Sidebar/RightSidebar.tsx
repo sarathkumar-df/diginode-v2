@@ -58,6 +58,24 @@ export function RightSidebar() {
     el.style.height = `${Math.min(el.scrollHeight, 80)}px`
   }, [input, tab])
 
+  // Auto-switch the active tab to wherever the latest activity is happening,
+  // so a generate triggered from the canvas popover (lands in Tools) or a chat
+  // action triggered from the Tools tab (lands in Chat) doesn't strand the
+  // user on the wrong tab. We only react to transitions, not steady state.
+  const prevExpandNodeIdRef = useRef<string | null>(expandResult?.nodeId ?? null)
+  const prevMessageCountRef = useRef<number>(aiMessages.length)
+
+  useEffect(() => {
+    const nextId = expandResult?.nodeId ?? null
+    if (nextId && nextId !== prevExpandNodeIdRef.current) setTab('tools')
+    prevExpandNodeIdRef.current = nextId
+  }, [expandResult?.nodeId])
+
+  useEffect(() => {
+    if (aiMessages.length > prevMessageCountRef.current) setTab('chat')
+    prevMessageCountRef.current = aiMessages.length
+  }, [aiMessages.length])
+
   const handleExpand = useCallback(() => {
     fetchExpandSuggestions()
   }, [fetchExpandSuggestions])
@@ -484,8 +502,8 @@ export function RightSidebar() {
                     )}
                     <div className={`flex flex-col gap-1.5 max-w-[82%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                       <div
-                        className={`rounded-xl px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap ${
-                          msg.role === 'user' ? 'rounded-br-sm' : 'rounded-bl-sm'
+                        className={`rounded-xl px-3 py-2 text-xs leading-relaxed ${
+                          msg.role === 'user' ? 'rounded-br-sm whitespace-pre-wrap' : 'rounded-bl-sm'
                         }`}
                         style={
                           msg.role === 'user'
@@ -493,7 +511,11 @@ export function RightSidebar() {
                             : { background: 'var(--canvas-bg)', color: 'var(--text-primary)', border: '1px solid var(--panel-border)' }
                         }
                       >
-                        {msg.content || (isBusy ? <ThinkingIndicator /> : null)}
+                        {msg.role === 'assistant'
+                          ? (msg.content
+                              ? <Markdown text={msg.content} />
+                              : (isBusy ? <ThinkingIndicator /> : null))
+                          : (msg.content || (isBusy ? <ThinkingIndicator /> : null))}
                       </div>
                       {msg.role === 'assistant' && msg.content && (
                         <ApplyChips content={msg.content} />
@@ -855,6 +877,116 @@ function RefinementChips({
       ))}
     </div>
   )
+}
+
+/* ── Tiny markdown renderer for chat replies ─────────────────────────────── */
+// The model emits prose with **bold**, bullet/numbered lists, and headings.
+// We render those as proper HTML so the chat doesn't look like raw text. Lines
+// matching the **Add to "X":** pattern are dropped — ApplyChips renders those
+// as interactive chips, so showing them as text would duplicate the UI.
+
+const ADD_TO_LINE_RE = /^\s*\*\*Add to "[^"]+":\*\*/
+
+function renderInline(text: string, keyBase: string): React.ReactNode[] {
+  // Split on **bold** and `code`, keeping the delimiters.
+  const out: React.ReactNode[] = []
+  const re = /(\*\*[^*\n]+\*\*|`[^`\n]+`)/g
+  let last = 0
+  let m: RegExpExecArray | null
+  let i = 0
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    const tok = m[0]
+    if (tok.startsWith('**')) {
+      out.push(<strong key={`${keyBase}-${i}`} className="font-semibold">{tok.slice(2, -2)}</strong>)
+    } else {
+      out.push(
+        <code
+          key={`${keyBase}-${i}`}
+          className="px-1 py-0.5 rounded text-[11px] font-mono"
+          style={{ background: 'var(--panel-bg)', border: '1px solid var(--panel-border)' }}
+        >
+          {tok.slice(1, -1)}
+        </code>
+      )
+    }
+    last = re.lastIndex
+    i += 1
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
+function Markdown({ text }: { text: string }) {
+  const lines = text.split('\n').filter((l) => !ADD_TO_LINE_RE.test(l))
+  const blocks: React.ReactNode[] = []
+  let i = 0
+  let key = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    const trimmed = line.trim()
+
+    if (trimmed === '') { i += 1; continue }
+
+    // Heading: #, ##, ###
+    const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed)
+    if (heading) {
+      const level = heading[1].length
+      const cls = level === 1 ? 'text-sm font-semibold mt-2 mb-1'
+                : level === 2 ? 'text-xs font-semibold mt-2 mb-1'
+                : 'text-xs font-semibold mt-1.5 mb-0.5'
+      blocks.push(<div key={key++} className={cls}>{renderInline(heading[2], `h${key}`)}</div>)
+      i += 1
+      continue
+    }
+
+    // Bullet list (- or *)
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items: string[] = []
+      while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^[-*]\s+/, ''))
+        i += 1
+      }
+      blocks.push(
+        <ul key={key++} className="list-disc pl-4 space-y-0.5 my-1">
+          {items.map((it, j) => <li key={j}>{renderInline(it, `li${key}-${j}`)}</li>)}
+        </ul>
+      )
+      continue
+    }
+
+    // Numbered list
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items: string[] = []
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^\d+\.\s+/, ''))
+        i += 1
+      }
+      blocks.push(
+        <ol key={key++} className="list-decimal pl-4 space-y-0.5 my-1">
+          {items.map((it, j) => <li key={j}>{renderInline(it, `oli${key}-${j}`)}</li>)}
+        </ol>
+      )
+      continue
+    }
+
+    // Paragraph: collect contiguous non-empty, non-list, non-heading lines
+    const para: string[] = [line]
+    i += 1
+    while (i < lines.length) {
+      const t = lines[i].trim()
+      if (t === '' || /^[-*]\s+/.test(t) || /^\d+\.\s+/.test(t) || /^#{1,3}\s+/.test(t)) break
+      para.push(lines[i])
+      i += 1
+    }
+    blocks.push(
+      <p key={key++} className="my-1 first:mt-0 last:mb-0">
+        {renderInline(para.join(' '), `p${key}`)}
+      </p>
+    )
+  }
+
+  return <div className="space-y-0">{blocks}</div>
 }
 
 /* ── Chat Apply chips ─────────────────────────────────────────────────────── */

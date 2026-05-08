@@ -203,10 +203,10 @@ function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>
   const isDropTarget = dropTargetId === id
 
   const [hovered, setHovered] = useState(false)
-  // The sparkle button is visible while the user hovers the node — and stays
-  // visible while the popover for this node is open, so the affordance reads
-  // as "this node has the AI panel attached."
-  const showAIButton = !data.isEditing && !presentationMode && (hovered || aiPopoverNodeId === id)
+  // Show the launcher on hover, but hide it once the popover for this node is
+  // open — the popover already provides the same affordance, so keeping the
+  // pill visible would be a redundant duplicate UI.
+  const showAIButton = !data.isEditing && !presentationMode && hovered && aiPopoverNodeId !== id
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -278,13 +278,14 @@ function MindMapNodeComponent({ id, data, selected }: NodeProps<MindMapNodeData>
             onMouseDown={(e) => e.stopPropagation()}
             title="Ask AI about this node"
             aria-label="Open AI prompt for this node"
-            className="w-6 h-6 rounded-full flex items-center justify-center text-white shadow-md transition-transform hover:scale-110"
+            className="h-6 pl-1.5 pr-2 rounded-full flex items-center gap-1 text-white text-[11px] font-medium shadow-md transition-transform hover:scale-105"
             style={{
               background: 'var(--brand)',
               boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)',
             }}
           >
             <Sparkles size={11} />
+            <span>Ask AI</span>
           </button>
           {/* Transparent 12px bridge between the button and the node body. */}
           <div className="w-10 h-3" />

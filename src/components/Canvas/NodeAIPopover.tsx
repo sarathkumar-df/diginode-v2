@@ -93,10 +93,11 @@ export function NodeAIPopover() {
         onClick={handleQuickExpand}
         disabled={isBusy}
         title="Expand with AI"
-        className="w-7 h-7 rounded-lg flex items-center justify-center text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="h-7 pl-2 pr-2.5 rounded-lg flex items-center gap-1 text-white text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
         style={{ background: 'var(--brand)' }}
       >
         {isBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+        <span>Generate ideas</span>
       </button>
 
       <textarea
