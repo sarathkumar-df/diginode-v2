@@ -5,11 +5,12 @@ import { useConfirm } from '@/components/UI/ConfirmModal'
 import { Team, TeamDetail, TeamMember } from '@/types'
 import {
   listTeams, createTeam, fetchTeam, deleteTeam,
-  removeMember, createInvite,
+  removeMember, addMember, createInvite, listUsers,
+  DirectoryUser,
 } from '@/services/teamService'
 import {
-  Users, Plus, Trash2, Crown, X, UserMinus,
-  Link, Loader2, Copy, Check, AlertCircle,
+  Users, Plus, Trash2, Crown, X, UserMinus, UserPlus,
+  Link, Loader2, Copy, Check, AlertCircle, Search,
 } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -165,6 +166,132 @@ function InviteLinkModal({ teamId, onClose }: { teamId: string; onClose: () => v
   )
 }
 
+// ── Add member modal ──────────────────────────────────────────────────────────
+
+function AddMemberModal({ teamId, existingMemberIds, onClose, onAdded }: {
+  teamId: string
+  existingMemberIds: Set<string>
+  onClose: () => void
+  onAdded: (member: TeamMember) => void
+}) {
+  const [users, setUsers] = useState<DirectoryUser[]>([])
+  const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [adding, setAdding] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    listUsers()
+      .then(setUsers)
+      .catch(() => setError('Failed to load users.'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleAdd = async (user: DirectoryUser) => {
+    setAdding(user.id)
+    setError('')
+    try {
+      const member = await addMember(teamId, user.id)
+      onAdded(member)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add member.')
+      setAdding(null)
+    }
+  }
+
+  const q = query.trim().toLowerCase()
+  const filtered = users.filter((u) => {
+    if (existingMemberIds.has(u.id)) return false
+    if (!q) return true
+    return u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q)
+  })
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border mx-4 flex flex-col"
+        style={{ background: 'var(--panel-bg)', borderColor: 'var(--panel-border)', boxShadow: '0 8px 32px rgba(0,0,0,0.12)', maxHeight: '70vh' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <UserPlus size={15} style={{ color: 'var(--brand)' }} />
+            <h2 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Add member</h2>
+          </div>
+          <button onClick={onClose} style={{ color: 'var(--text-muted)' }}><X size={16} /></button>
+        </div>
+
+        <div className="px-5 pb-3 flex-shrink-0">
+          <div className="relative">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name or email"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border text-sm outline-none"
+              style={{ background: 'var(--canvas-bg)', borderColor: 'var(--panel-border)', color: 'var(--text-primary)' }}
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 pb-3 min-h-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 gap-2 text-center px-4">
+              <AlertCircle size={18} style={{ color: 'var(--text-muted)' }} />
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {users.length === 0
+                  ? 'No other users in your organization yet.'
+                  : q
+                    ? 'No users match your search.'
+                    : 'Everyone in your organization is already on this team.'}
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              {filtered.map((u) => (
+                <button
+                  key={u.id}
+                  onClick={() => handleAdd(u)}
+                  disabled={adding !== null}
+                  className="flex items-center gap-3 px-2 py-2 rounded-xl transition-colors text-left disabled:opacity-60 hover:bg-[var(--brand-light)]"
+                >
+                  <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                    {u.name?.charAt(0).toUpperCase() ?? u.email?.charAt(0).toUpperCase() ?? '?'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{u.name || u.email}</p>
+                    {u.name && <p className="text-[11px] truncate" style={{ color: 'var(--text-muted)' }}>{u.email}</p>}
+                  </div>
+                  {adding === u.id ? (
+                    <Loader2 size={14} className="animate-spin flex-shrink-0" style={{ color: 'var(--brand)' }} />
+                  ) : (
+                    <Plus size={14} className="flex-shrink-0" style={{ color: 'var(--brand)' }} />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div className="px-5 pb-4 flex-shrink-0">
+            <p className="text-xs text-red-500">{error}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Team detail panel (slide-in from right) ───────────────────────────────────
 
 function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
@@ -177,6 +304,7 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
   const [detail, setDetail] = useState<TeamDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [showInvite, setShowInvite] = useState(false)
+  const [showAddMember, setShowAddMember] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
 
   useEffect(() => {
@@ -256,16 +384,25 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
         ) : detail ? (
           <>
             <div className="flex-1 overflow-y-auto px-5 py-5">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4 gap-2">
                 <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Members</p>
                 {detail.myRole === 'owner' && (
-                  <button
-                    onClick={() => setShowInvite(true)}
-                    className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-                    style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
-                  >
-                    <Link size={11} /> Invite link
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setShowAddMember(true)}
+                      className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+                      style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
+                    >
+                      <UserPlus size={11} /> Add member
+                    </button>
+                    <button
+                      onClick={() => setShowInvite(true)}
+                      className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+                      style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
+                    >
+                      <Link size={11} /> Invite link
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="flex flex-col gap-1">
@@ -325,6 +462,17 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
         ) : null}
       </div>
       {showInvite && <InviteLinkModal teamId={teamId} onClose={() => setShowInvite(false)} />}
+      {showAddMember && detail && (
+        <AddMemberModal
+          teamId={teamId}
+          existingMemberIds={new Set(detail.members.map((m) => m.id))}
+          onClose={() => setShowAddMember(false)}
+          onAdded={(member) => {
+            setDetail((d) => d ? { ...d, members: [...d.members, member], memberCount: d.memberCount + 1 } : d)
+            setShowAddMember(false)
+          }}
+        />
+      )}
     </>
   )
 }

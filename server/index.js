@@ -480,6 +480,19 @@ app.post('/api/users/me', authMiddleware, route(async (req, res) => {
   res.json({ ok: true })
 }))
 
+// GET /api/users — list users in the same tenant as the caller (excluding self)
+app.get('/api/users', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const { rows } = await pool.query(
+    `SELECT id, name, email
+     FROM users
+     WHERE tenant_id = $1 AND id <> $2
+     ORDER BY name ASC NULLS LAST, email ASC`,
+    [req.user.tenantId ?? '', req.user.id]
+  )
+  res.json(rows)
+}))
+
 // ─── Map Routes ───────────────────────────────────────────────────────────────
 
 // GET /api/maps — list user's maps (metadata only, sorted by last updated)
@@ -1400,6 +1413,52 @@ app.delete('/api/teams/:id', authMiddleware, route(async (req, res) => {
   )
   if (!rowCount) return res.status(403).json({ error: 'Not found or not the owner' })
   res.json({ ok: true })
+}))
+
+// POST /api/teams/:id/members — add a member directly (owner only, same tenant only)
+app.post('/api/teams/:id/members', authMiddleware, route(async (req, res) => {
+  if (!requireDb(res)) return
+  const { id: teamId } = req.params
+  const { userId } = req.body
+  if (!userId) return res.status(400).json({ error: 'userId is required' })
+
+  const { rows: ownerCheck } = await pool.query(
+    `SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2`,
+    [teamId, req.user.id]
+  )
+  if (ownerCheck[0]?.role !== 'owner') {
+    return res.status(403).json({ error: 'Only the owner can add members' })
+  }
+
+  const { rows: targetRows } = await pool.query(
+    `SELECT id, name, email, tenant_id, joined_at FROM users WHERE id = $1`,
+    [userId]
+  )
+  const target = targetRows[0]
+  if (!target) return res.status(404).json({ error: 'User not found' })
+  if ((target.tenant_id ?? '') !== (req.user.tenantId ?? '')) {
+    return res.status(403).json({ error: 'User is not in your organization' })
+  }
+
+  const inserted = await pool.query(
+    `INSERT INTO team_members (team_id, user_id, role)
+     VALUES ($1, $2, 'member')
+     ON CONFLICT (team_id, user_id) DO NOTHING
+     RETURNING joined_at`,
+    [teamId, userId]
+  )
+  if (!inserted.rowCount) return res.status(409).json({ error: 'User is already a member' })
+
+  res.json({
+    ok: true,
+    member: {
+      id: target.id,
+      name: target.name,
+      email: target.email,
+      role: 'member',
+      joinedAt: inserted.rows[0].joined_at,
+    },
+  })
 }))
 
 // DELETE /api/teams/:id/members/:userId — remove a member (owner only, or self-leave)

@@ -1,5 +1,11 @@
 import { msalInstance } from '@/auth/AuthProvider'
-import { Team, TeamDetail, InviteInfo } from '@/types'
+import { Team, TeamDetail, TeamMember, InviteInfo } from '@/types'
+
+export interface DirectoryUser {
+  id: string
+  name: string
+  email: string
+}
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '') + '/api'
 
@@ -59,6 +65,30 @@ export async function deleteTeam(id: string): Promise<void> {
 export async function removeMember(teamId: string, userId: string): Promise<void> {
   const headers = await authHeaders()
   await fetch(`${API_BASE}/teams/${teamId}/members/${userId}`, { method: 'DELETE', headers })
+}
+
+export async function addMember(teamId: string, userId: string): Promise<TeamMember> {
+  const headers = await authHeaders()
+  const res = await fetch(`${API_BASE}/teams/${teamId}/members`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ userId }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? 'Failed to add member')
+  }
+  const { member } = await res.json()
+  return member
+}
+
+// ─── Directory ────────────────────────────────────────────────────────────────
+
+export async function listUsers(): Promise<DirectoryUser[]> {
+  const headers = await authHeaders()
+  const res = await fetch(`${API_BASE}/users`, { headers })
+  if (!res.ok) throw new Error('Failed to load users')
+  return res.json()
 }
 
 // ─── Invites ──────────────────────────────────────────────────────────────────
