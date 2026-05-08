@@ -6,6 +6,7 @@ import { loginRequest } from '@/auth/msalConfig'
 import { msalInstance } from '@/auth/AuthProvider'
 import { fetchInvite, acceptInvite } from '@/services/teamService'
 import { InviteInfo } from '@/types'
+import { toast } from '@/store/toastStore'
 
 type InviteStatus = 'loading' | 'valid' | 'invalid' | 'accepting' | 'accepted'
 
@@ -42,9 +43,11 @@ export function InvitePage() {
     try {
       await acceptInvite(token)
       setStatus('accepted')
+      toast.success({ title: 'Joined team', description: invite ? `You're in ${invite.teamName}.` : undefined })
     } catch {
       setError('Failed to accept invite. It may have expired.')
       setStatus('valid')
+      toast.error({ title: 'Couldn’t accept invite', description: 'It may have expired.' })
     }
   }
 

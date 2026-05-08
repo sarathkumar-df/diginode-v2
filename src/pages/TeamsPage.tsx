@@ -13,6 +13,7 @@ import {
   Link, Loader2, Copy, Check, AlertCircle, Search,
 } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
+import { toast } from '@/store/toastStore'
 
 // ── Create team modal ─────────────────────────────────────────────────────────
 
@@ -41,9 +42,11 @@ function CreateTeamModal({ onClose, onCreate }: {
         createdAt: new Date().toISOString(),
       })
       onClose()
+      toast.success({ title: 'Team created', description: name.trim() })
     } catch {
       setError('Failed to create team. Please try again.')
       setSaving(false)
+      toast.error({ title: 'Couldn’t create team', description: 'Please try again.' })
     }
   }
 
@@ -193,9 +196,12 @@ function AddMemberModal({ teamId, existingMemberIds, onClose, onAdded }: {
     try {
       await addMember(teamId, user.id)
       onAdded()
+      toast.success({ title: 'Member added', description: user.name ?? user.email ?? '' })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add member.')
+      const msg = err instanceof Error ? err.message : 'Failed to add member.'
+      setError(msg)
       setAdding(null)
+      toast.error({ title: 'Couldn’t add member', description: msg })
     }
   }
 

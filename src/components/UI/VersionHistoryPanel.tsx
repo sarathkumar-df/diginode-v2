@@ -8,6 +8,7 @@ import { MapVersion, MapPermission } from '@/types'
 import { listVersions, restoreVersion } from '@/services/versionService'
 import { useMindMapStore } from '@/store/mindmapStore'
 import { useConfirm } from '@/components/UI/ConfirmModal'
+import { toast } from '@/store/toastStore'
 
 interface Props {
   mapId: string
@@ -65,8 +66,11 @@ export function VersionHistoryPanel({ mapId, permission, onClose }: Props) {
       const updated = await listVersions(mapId)
       setVersions(updated)
       setRestoredId(null)
+      toast.success({ title: 'Version restored', description: 'Your previous state was saved as a new version.' })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Restore failed.')
+      const msg = err instanceof Error ? err.message : 'Restore failed.'
+      setError(msg)
+      toast.error({ title: 'Restore failed', description: msg })
     } finally {
       setRestoringId(null)
     }

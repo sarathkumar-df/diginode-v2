@@ -4,6 +4,7 @@ import { X, Users, Trash2, Loader2, Share2, ChevronDown } from 'lucide-react'
 import { listShares, shareMap, unshareMap } from '@/services/shareService'
 import { listTeams } from '@/services/teamService'
 import { MapShare, Team, MapPermission } from '@/types'
+import { toast } from '@/store/toastStore'
 
 interface Props {
   mapId: string
@@ -50,8 +51,11 @@ export function ShareModal({ mapId, mapTitle, open, onClose }: Props) {
         ...prev,
         { teamId: selectedTeamId, teamName: team.name, permission, sharedAt: new Date().toISOString() },
       ])
+      toast.success({ title: 'Map shared', description: `${team.name} can ${permission === 'edit' ? 'edit' : 'view'} this map.` })
     } catch (err: any) {
-      setError(err.message ?? 'Failed to share.')
+      const msg = err.message ?? 'Failed to share.'
+      setError(msg)
+      toast.error({ title: 'Couldn’t share map', description: msg })
     } finally {
       setSharing(false)
     }
@@ -59,9 +63,13 @@ export function ShareModal({ mapId, mapTitle, open, onClose }: Props) {
 
   const handleRemove = async (teamId: string) => {
     setRemovingId(teamId)
+    const team = shares.find((s) => s.teamId === teamId)
     try {
       await unshareMap(mapId, teamId)
       setShares((prev) => prev.filter((s) => s.teamId !== teamId))
+      toast.success({ title: 'Share removed', description: team ? `${team.teamName} no longer has access.` : undefined })
+    } catch {
+      toast.error({ title: 'Couldn’t remove share', description: 'Please try again.' })
     } finally {
       setRemovingId(null)
     }

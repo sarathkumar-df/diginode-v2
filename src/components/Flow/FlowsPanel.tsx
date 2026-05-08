@@ -6,6 +6,7 @@ import { useFlowStore } from '@/store/flowStore'
 import { listFlows, deleteFlow, renameFlow, duplicateFlow } from '@/services/flowService'
 import { useConfirm } from '@/components/UI/ConfirmModal'
 import { FlowMeta } from '@/types'
+import { toast } from '@/store/toastStore'
 
 interface FlowsPanelProps {
   mapId: string
@@ -48,8 +49,9 @@ export function FlowsPanel({ mapId }: FlowsPanelProps) {
     try {
       await deleteFlow(mapId, flow.id)
       removeFlowFromList(flow.id)
+      toast.success({ title: 'Flow deleted', description: `"${flow.title}" was removed.` })
     } catch {
-      // silent
+      toast.error({ title: 'Couldn’t delete flow', description: 'Please try again.' })
     }
   }, [mapId, removeFlowFromList, confirm])
 
@@ -64,8 +66,9 @@ export function FlowsPanel({ mapId }: FlowsPanelProps) {
     try {
       await renameFlow(mapId, editingId, editTitle.trim())
       updateFlowTitle(editingId, editTitle.trim())
+      toast.success({ title: 'Flow renamed' })
     } catch {
-      // silent
+      toast.error({ title: 'Couldn’t rename flow', description: 'Please try again.' })
     }
     setEditingId(null)
   }, [mapId, editingId, editTitle, updateFlowTitle])
@@ -85,8 +88,9 @@ export function FlowsPanel({ mapId }: FlowsPanelProps) {
         updatedAt: new Date().toISOString(),
       })
       navigate(`/map/${mapId}/flow/${newId}`)
+      toast.success({ title: 'Derivative created', description: newTitle })
     } catch {
-      // silent
+      toast.error({ title: 'Couldn’t create derivative', description: 'Please try again.' })
     }
   }, [mapId, addFlowToList, navigate])
 

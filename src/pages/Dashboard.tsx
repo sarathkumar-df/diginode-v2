@@ -6,6 +6,7 @@ import { upsertUser, listMaps, createMap, deleteMap, duplicateMap } from '@/serv
 import { listSharedMaps } from '@/services/shareService'
 import { generateMapFromTopic } from '@/services/aiService'
 import { buildAIMap } from '@/utils/buildAIMap'
+import { toast } from '@/store/toastStore'
 import { AppSidebar } from '@/components/Layout/AppSidebar'
 import { ImportModal } from '@/components/UI/ImportModal'
 import { useConfirm } from '@/components/UI/ConfirmModal'
@@ -172,8 +173,10 @@ function MapCard({ map, onDelete, onDuplicate }: { map: MapMeta; onDelete: (id: 
     try {
       await deleteMap(map.id)
       onDelete(map.id)
+      toast.success({ title: 'Map deleted', description: `"${map.title}" was removed.` })
     } catch {
       setDeleting(false)
+      toast.error({ title: 'Couldn’t delete map', description: 'Please try again.' })
     }
   }
 
@@ -184,8 +187,10 @@ function MapCard({ map, onDelete, onDuplicate }: { map: MapMeta; onDelete: (id: 
     try {
       await duplicateMap(map.id)
       onDuplicate(map.id)
+      toast.success({ title: 'Map duplicated' })
     } catch {
       setDuplicating(false)
+      toast.error({ title: 'Couldn’t duplicate map', description: 'Please try again.' })
     }
   }
 
@@ -765,6 +770,7 @@ export function Dashboard() {
       navigate(`/map/${id}`)
     } catch {
       setCreating(false)
+      toast.error({ title: 'Couldn’t create map', description: 'Please try again.' })
     }
   }
 
@@ -823,8 +829,10 @@ export function Dashboard() {
         prompt,
       })
     } catch (err: any) {
-      setGenerateError(err?.message ?? 'Failed to generate. Please try again.')
+      const msg = err?.message ?? 'Failed to generate. Please try again.'
+      setGenerateError(msg)
       setGenerating(false)
+      toast.error({ title: 'Map generation failed', description: msg })
     }
   }
 
@@ -845,25 +853,33 @@ export function Dashboard() {
       addMapToList(meta)
       setMaps((prev) => [meta, ...prev])
       navigate(`/map/${map.id}`)
+      toast.success({ title: 'Map created', description: map.title })
     } catch (err: any) {
-      setGenerateError(err?.message ?? 'Failed to save. Please try again.')
+      const msg = err?.message ?? 'Failed to save. Please try again.'
+      setGenerateError(msg)
       setGenerating(false)
+      toast.error({ title: 'Couldn’t save map', description: msg })
     }
   }
 
   const handleImport = async ({ title, nodes, edges }: { title: string; nodes: MindMapNode[]; edges: MindMapEdge[] }) => {
     const { v4: uuidv4 } = await import('uuid')
     const id = uuidv4()
-    await createMap(id, title, nodes, edges)
-    const meta: MapMeta = {
-      id, title,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      rootColor: (nodes[0]?.data?.color) ?? '#6366f1',
+    try {
+      await createMap(id, title, nodes, edges)
+      const meta: MapMeta = {
+        id, title,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rootColor: (nodes[0]?.data?.color) ?? '#6366f1',
+      }
+      addMapToList(meta)
+      setMaps((prev) => [meta, ...prev])
+      navigate(`/map/${id}`)
+      toast.success({ title: 'Map imported', description: title })
+    } catch (err: any) {
+      toast.error({ title: 'Import failed', description: err?.message ?? 'Please try again.' })
     }
-    addMapToList(meta)
-    setMaps((prev) => [meta, ...prev])
-    navigate(`/map/${id}`)
   }
 
   // The "Continue where you left off" row always uses recency, regardless of

@@ -1,4 +1,5 @@
 import { MindMapNode, MindMapEdge } from '@/types'
+import { toast } from '@/store/toastStore'
 
 export function exportToJSON(
   nodes: MindMapNode[],
@@ -29,6 +30,7 @@ export function exportToJSON(
 
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   downloadBlob(blob, `${title.replace(/\s+/g, '-')}.json`)
+  toast.success({ title: 'Map exported as JSON' })
 }
 
 export async function exportToPng(title: string): Promise<void> {
@@ -51,8 +53,10 @@ export async function exportToPng(title: string): Promise<void> {
     })
 
     downloadBlob(dataUrlToBlob(dataUrl), `${title.replace(/\s+/g, '-')}.png`)
+    toast.success({ title: 'Map exported as PNG' })
   } catch (err) {
     console.error('PNG export failed:', err)
+    toast.error({ title: 'PNG export failed', description: 'The canvas could not be captured.' })
   }
 }
 
@@ -96,6 +100,7 @@ export function exportToMarkdown(
 
   const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
   downloadBlob(blob, `${title.replace(/\s+/g, '-')}.md`)
+  toast.success({ title: 'Map exported as Markdown' })
 }
 
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -140,8 +145,10 @@ export async function exportFlowToPng(title: string): Promise<void> {
     })
 
     downloadBlob(dataUrlToBlob(dataUrl), `${title.replace(/\s+/g, '-')}-flow.png`)
+    toast.success({ title: 'Flow exported as PNG' })
   } catch (err) {
     console.error('Flow PNG export failed:', err)
+    toast.error({ title: 'Flow PNG export failed' })
   }
 }
 
@@ -160,8 +167,10 @@ export async function exportFlowToSvg(title: string): Promise<void> {
     })
 
     downloadBlob(dataUrlToBlob(dataUrl), `${title.replace(/\s+/g, '-')}-flow.svg`)
+    toast.success({ title: 'Flow exported as SVG' })
   } catch (err) {
     console.error('Flow SVG export failed:', err)
+    toast.error({ title: 'Flow SVG export failed' })
   }
 }
 
@@ -182,7 +191,10 @@ export async function exportFlowToPdf(title: string): Promise<void> {
 
     // Create a printable page with the image and trigger browser print
     const printWindow = window.open('', '_blank')
-    if (!printWindow) return
+    if (!printWindow) {
+      toast.warning({ title: 'Popup blocked', description: 'Allow popups to export the flow as PDF.' })
+      return
+    }
 
     const img = new Image()
     img.src = dataUrl
@@ -209,7 +221,9 @@ export async function exportFlowToPdf(title: string): Promise<void> {
     printWindow.document.close()
     printWindow.focus()
     setTimeout(() => printWindow.print(), 300)
+    toast.info({ title: 'Opening print dialog…', description: 'Save as PDF from the print dialog.' })
   } catch (err) {
     console.error('Flow PDF export failed:', err)
+    toast.error({ title: 'Flow PDF export failed' })
   }
 }

@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, CheckCircle, AlertCircle, Loader2, Settings } from 'lucide-react'
 import { useSettingsStore, AIProvider, MODELS } from '@/store/settingsStore'
+import { toast } from '@/store/toastStore'
 
 interface Props {
   open: boolean
@@ -36,14 +37,18 @@ export function SettingsModal({ open, onClose }: Props) {
 
       if (data.ok) {
         setTestStatus('ok')
+        toast.success({ title: 'Connection works', description: `${provider} · ${model}` })
       } else {
         setTestStatus('error')
         const raw = data.error
-        setTestError(typeof raw === 'string' ? raw : raw?.message ?? 'Connection failed.')
+        const msg = typeof raw === 'string' ? raw : raw?.message ?? 'Connection failed.'
+        setTestError(msg)
+        toast.error({ title: 'Connection failed', description: msg })
       }
     } catch {
       setTestStatus('error')
       setTestError('Could not reach the server.')
+      toast.error({ title: 'Connection failed', description: 'Could not reach the server.' })
     }
   }, [provider, model])
 

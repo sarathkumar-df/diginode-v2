@@ -18,6 +18,7 @@ import {
   ExpandStyle,
 } from '@/services/aiService'
 import { AIMessage, AIFeature, AINodeSuggestion, MapAdvisor, MindMapExport } from '@/types'
+import { toast } from '@/store/toastStore'
 
 export type RefineMode = 'more' | 'concrete' | 'ambitious' | 'regenerate'
 
@@ -103,7 +104,7 @@ export function useAI() {
       return true
     } catch (err: any) {
       setAIStatus('error')
-      setAIError(err.message)
+      setAIError(err.message); toast.error({ title: 'AI request failed', description: err.message })
       return false
     }
   }, [selectedNodeIds, exportMap, setAIStatus, setAIError, ensurePanelOpen, setExpandResult])
@@ -150,7 +151,7 @@ export function useAI() {
       return true
     } catch (err: any) {
       setAIStatus('error')
-      setAIError(err.message)
+      setAIError(err.message); toast.error({ title: 'AI request failed', description: err.message })
       return false
     }
   }, [exportMap, setAIStatus, setAIError, setExpandResult, appendExpandSuggestions])
@@ -195,7 +196,7 @@ export function useAI() {
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         setAIStatus('error')
-        setAIError(err.message)
+        setAIError(err.message); toast.error({ title: 'AI request failed', description: err.message })
       } else {
         setAIStatus('idle')
       }
@@ -255,7 +256,7 @@ export function useAI() {
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         setAIStatus('error')
-        setAIError(err.message)
+        setAIError(err.message); toast.error({ title: 'AI request failed', description: err.message })
       } else {
         setAIStatus('idle')
       }
@@ -286,7 +287,7 @@ export function useAI() {
       setAIStatus('idle')
     } catch (err: any) {
       setAIStatus('error')
-      setAIError(err.message)
+      setAIError(err.message); toast.error({ title: 'AI request failed', description: err.message })
     }
   }, [exportMap, addAIEdges, addAIMessage, setAIStatus, setAIError, ensurePanelOpen])
 
@@ -302,6 +303,7 @@ export function useAI() {
     if ((mode === 'find-gaps' || mode === 'compress') && !selectedLabel) {
       setAIError('Select a node first')
       setAIStatus('error')
+      toast.warning({ title: 'Select a node first' })
       return
     }
 
@@ -346,7 +348,7 @@ export function useAI() {
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         setAIStatus('error')
-        setAIError(err.message)
+        setAIError(err.message); toast.error({ title: 'AI request failed', description: err.message })
       } else {
         setAIStatus('idle')
       }
@@ -386,7 +388,7 @@ export function useAI() {
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         setAIStatus('error')
-        setAIError(err.message)
+        setAIError(err.message); toast.error({ title: 'AI request failed', description: err.message })
       } else {
         setAIStatus('idle')
       }
@@ -442,7 +444,7 @@ export function useAI() {
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         setAIStatus('error')
-        setAIError(err.message)
+        setAIError(err.message); toast.error({ title: 'AI request failed', description: err.message })
       } else {
         setAIStatus('idle')
       }

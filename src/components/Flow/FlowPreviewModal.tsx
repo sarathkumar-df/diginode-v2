@@ -27,6 +27,7 @@ import { BulletListNode } from './BulletListNode'
 import { SwimlaneNode } from './SwimlaneNode'
 import { FlowCustomEdge } from './FlowEdge'
 import { FlowNode, FlowEdge, MindMapExport } from '@/types'
+import { toast } from '@/store/toastStore'
 
 const nodeTypes: NodeTypes = {
   process: ProcessNode,
@@ -85,8 +86,10 @@ function FlowPreviewInner({ onClose, mapId }: Omit<Props, 'open'>) {
       setPreviewEdges(result.edges)
       setStatus('preview')
     } catch (err: any) {
-      setError(err.message || 'Failed to generate flow. Try again.')
+      const msg = err.message || 'Failed to generate flow. Try again.'
+      setError(msg)
       setStatus('idle')
+      toast.error({ title: 'Flow generation failed', description: msg })
     }
   }, [mapNodes, mapEdges])
 
@@ -112,9 +115,12 @@ function FlowPreviewInner({ onClose, mapId }: Omit<Props, 'open'>) {
         updatedAt: new Date().toISOString(),
       })
       onClose()
+      toast.success({ title: 'Flow saved', description: flowTitle })
     } catch (err: any) {
-      setError(err.message || 'Failed to save flow.')
+      const msg = err.message || 'Failed to save flow.'
+      setError(msg)
       setStatus('preview')
+      toast.error({ title: 'Couldn’t save flow', description: msg })
     }
   }, [mapId, flowTitle, previewNodes, previewEdges, addFlowToList, onClose])
 

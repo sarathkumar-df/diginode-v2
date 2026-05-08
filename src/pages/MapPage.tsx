@@ -27,6 +27,7 @@ import { RoomProvider, presenceColor } from '@/liveblocks.config'
 import { useCurrentUser } from '@/auth/AuthProvider'
 import { LoadingShell } from '@/components/UI/LoadingShell'
 import { MapPermission } from '@/types'
+import { toast } from '@/store/toastStore'
 import {
   Eye, Layers, Map as MapIcon, ArrowLeft, Plus, Wand2,
   Search, Sparkles, Share2, Download, MoreHorizontal,
@@ -108,6 +109,7 @@ function MapPageInner() {
       } catch {
         if (!cancelled) {
           setError('Map not found or you do not have access.')
+          toast.error({ title: 'Couldn’t open map', description: 'Map not found or you don’t have access.' })
           setTimeout(() => navigate('/dashboard', { replace: true }), 2000)
         }
       } finally {

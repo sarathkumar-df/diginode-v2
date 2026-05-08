@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
 import { ConfirmProvider } from './components/UI/ConfirmModal'
+import { ToastContainer } from './components/UI/ToastContainer'
 import App from './App'
 import './index.css'
 
@@ -12,6 +13,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <ConfirmProvider>
           <App />
+          <ToastContainer />
         </ConfirmProvider>
       </BrowserRouter>
     </AuthProvider>

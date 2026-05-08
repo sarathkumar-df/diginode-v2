@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { MindMapNode, MindMapEdge, MapAdvisor } from '@/types'
 import { AdvisorSuggestionModal } from '@/components/UI/AdvisorSuggestionModal'
 import { AdvisorPicker } from '@/components/UI/AdvisorPicker'
+import { toast } from '@/store/toastStore'
 
 interface AINodeTree {
   label: string
@@ -176,7 +177,9 @@ export function GenerateMapModal({ open, onClose }: Props) {
         text: isText ? input : undefined,
       })
     } catch (err: any) {
-      setError(err.message)
+      const msg = err?.message ?? 'Generation failed.'
+      setError(msg)
+      toast.error({ title: 'Generation failed', description: msg })
     } finally {
       setLoading(false)
     }
