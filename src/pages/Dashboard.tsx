@@ -1057,79 +1057,82 @@ export function Dashboard() {
         <div className="flex-1 overflow-y-auto px-8 py-8">
           {error && <p className="text-sm text-red-500 mb-6">{error}</p>}
 
-          {/* Hero prompt — primary "create" surface. Rendered during loading
-              too (wrapped in LoadingShell) so it doesn't pop in afterward. */}
-          <LoadingShell loading={loading}>
-            <HeroPrompt
-              onSubmit={handleGenerate}
-              generating={generating}
-              error={generateError}
-              inputRef={generateInputRef}
-            />
-          </LoadingShell>
+          {/* Hero prompt — primary "create" surface. Static content, fully
+              interactive on first paint, so it doesn't need a skeleton. */}
+          <HeroPrompt
+            onSubmit={handleGenerate}
+            generating={generating}
+            error={generateError}
+            inputRef={generateInputRef}
+          />
 
-          <LoadingShell loading={loading}>
-            {/* Continue where you left off — top 3 most recent maps. During
-                load, render 3 skeleton cards so the row holds its space.
-                Hidden while searching so results aren't double-counted. */}
-            {(loading || continueMaps.length > 0) && (
-              <section className="mb-10">
-                <SectionHeader
-                  label="Continue where you left off"
-                  count={loading ? 3 : continueMaps.length}
-                />
+          {/* Continue where you left off — top 3 most recent maps. During
+              load, render 3 skeleton cards so the row holds its space.
+              Hidden while searching so results aren't double-counted.
+              Section header renders as plain static text — only the grid
+              gets wrapped in LoadingShell. */}
+          {(loading || continueMaps.length > 0) && (
+            <section className="mb-10">
+              <SectionHeader
+                label="Continue where you left off"
+                count={loading ? 3 : continueMaps.length}
+              />
+              <LoadingShell loading={loading}>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {(loading ? skeletonMaps.slice(0, 3) : continueMaps).map((map) => (
                     <BigMapCard key={map.id} map={map} />
                   ))}
                 </div>
-              </section>
-            )}
+              </LoadingShell>
+            </section>
+          )}
 
-            {/* All maps — during loading we shadow-render the grid with
-                placeholder MapMeta entries so the layout doesn't reflow. */}
-            {(visibleMaps.length > 0 || loading) && (
-              <section className="mb-10">
-                <div className="flex items-center justify-between mb-5">
-                  <div className="flex items-center gap-2.5">
-                    <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-                      All maps
-                    </h2>
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
-                      style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
-                    >
-                      {loading ? visibleMaps.length : filteredMaps.length}
-                    </span>
-                  </div>
-                  {!loading && <SortDropdown value={sort} onChange={setSort} />}
+          {/* Shared with me — only render when there's something to show. */}
+          {!loading && filteredShared.length > 0 && (
+            <section className="mb-10">
+              <SectionHeader label="Shared with me" count={filteredShared.length} />
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {filteredShared.map((map) => (
+                  <SharedMapCard key={map.id} map={map} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* All maps — during loading we shadow-render the grid with
+              placeholder MapMeta entries so the layout doesn't reflow. The
+              header stays static; only the grid gets the skeleton mask. */}
+          {(visibleMaps.length > 0 || loading) && (
+            <section className="mb-10">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2.5">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                    All maps
+                  </h2>
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                    style={{ background: 'var(--brand-light)', color: 'var(--brand)' }}
+                  >
+                    {loading ? visibleMaps.length : filteredMaps.length}
+                  </span>
                 </div>
-                {!loading && filteredMaps.length === 0 ? (
-                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No maps match your search.</p>
-                ) : (
+                {!loading && <SortDropdown value={sort} onChange={setSort} />}
+              </div>
+              {!loading && filteredMaps.length === 0 ? (
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No maps match your search.</p>
+              ) : (
+                <LoadingShell loading={loading}>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                     {visibleMaps.map((map) => (
                       <MapCard key={map.id} map={map} onDelete={handleDelete} onDuplicate={handleDuplicate} />
                     ))}
                   </div>
-                )}
-              </section>
-            )}
+                </LoadingShell>
+              )}
+            </section>
+          )}
 
-            {!loading && maps.length === 0 && <EmptyState onNew={handleNewMap} creating={creating} />}
-
-            {/* Shared with me — only render when there's something to show. */}
-            {!loading && filteredShared.length > 0 && (
-              <section>
-                <SectionHeader label="Shared with me" count={filteredShared.length} />
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {filteredShared.map((map) => (
-                    <SharedMapCard key={map.id} map={map} />
-                  ))}
-                </div>
-              </section>
-            )}
-          </LoadingShell>
+          {!loading && maps.length === 0 && <EmptyState onNew={handleNewMap} creating={creating} />}
         </div>
       </div>
 
