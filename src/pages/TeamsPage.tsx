@@ -172,7 +172,7 @@ function AddMemberModal({ teamId, existingMemberIds, onClose, onAdded }: {
   teamId: string
   existingMemberIds: Set<string>
   onClose: () => void
-  onAdded: (member: TeamMember) => void
+  onAdded: () => void
 }) {
   const [users, setUsers] = useState<DirectoryUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -191,8 +191,8 @@ function AddMemberModal({ teamId, existingMemberIds, onClose, onAdded }: {
     setAdding(user.id)
     setError('')
     try {
-      const member = await addMember(teamId, user.id)
-      onAdded(member)
+      await addMember(teamId, user.id)
+      onAdded()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add member.')
       setAdding(null)
@@ -467,9 +467,10 @@ function TeamPanel({ teamId, currentUserId, onClose, onDeleted }: {
           teamId={teamId}
           existingMemberIds={new Set(detail.members.map((m) => m.id))}
           onClose={() => setShowAddMember(false)}
-          onAdded={(member) => {
-            setDetail((d) => d ? { ...d, members: [...d.members, member], memberCount: d.memberCount + 1 } : d)
+          onAdded={async () => {
             setShowAddMember(false)
+            const fresh = await fetchTeam(teamId)
+            setDetail(fresh)
           }}
         />
       )}

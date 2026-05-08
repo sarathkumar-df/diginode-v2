@@ -1431,7 +1431,7 @@ app.post('/api/teams/:id/members', authMiddleware, route(async (req, res) => {
   }
 
   const { rows: targetRows } = await pool.query(
-    `SELECT id, name, email, tenant_id, joined_at FROM users WHERE id = $1`,
+    `SELECT id, name, email, tenant_id FROM users WHERE id = $1`,
     [userId]
   )
   const target = targetRows[0]
