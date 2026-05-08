@@ -94,6 +94,9 @@ interface MindMapStore {
 
   // ── Active map management ─────────────────────────────────────────────────
   loadMap: (map: { id: string; nodes: MindMapNode[]; edges: MindMapEdge[]; advisor?: MapAdvisor | null }) => void
+  // Apply a remote nodes/edges snapshot (e.g. from Liveblocks) without
+  // touching advisor or undo history — those are not part of the live sync.
+  applyRemoteSnapshot: (mapId: string, nodes: MindMapNode[], edges: MindMapEdge[]) => void
   setAdvisor: (advisor: MapAdvisor | null) => void
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -180,6 +183,15 @@ export const useMindMapStore = create<MindMapStore>()((set, get) => ({
       targetHandle: e.targetHandle ?? 'left',
     }))
     set({ activeMapId: id, nodes, edges: normalizedEdges, advisor, history: [], historyIndex: -1 })
+  },
+
+  applyRemoteSnapshot: (mapId, nodes, edges) => {
+    const normalizedEdges = edges.map((e) => ({
+      ...e,
+      sourceHandle: e.sourceHandle ?? 'right',
+      targetHandle: e.targetHandle ?? 'left',
+    }))
+    set({ activeMapId: mapId, nodes, edges: normalizedEdges })
   },
 
   setAdvisor: (advisor) => set({ advisor }),

@@ -33,7 +33,7 @@ function formatVersionDate(iso: string): { date: string; time: string } {
 }
 
 export function VersionHistoryPanel({ mapId, permission, onClose }: Props) {
-  const { loadMap } = useMindMapStore()
+  const { applyRemoteSnapshot } = useMindMapStore()
   const confirm = useConfirm()
   const [versions, setVersions] = useState<MapVersion[]>([])
   const [loading, setLoading] = useState(true)
@@ -59,7 +59,7 @@ export function VersionHistoryPanel({ mapId, permission, onClose }: Props) {
     setError('')
     try {
       const data = await restoreVersion(mapId, version.id)
-      loadMap({ id: mapId, nodes: data.nodes, edges: data.edges })
+      applyRemoteSnapshot(mapId, data.nodes, data.edges)
       setRestoredId(version.id)
       // Refresh the list (restoring creates a new snapshot)
       const updated = await listVersions(mapId)

@@ -20,7 +20,7 @@ interface Props {
 }
 
 export function LiveblocksSync({ mapId }: Props) {
-  const { nodes, edges, loadMap } = useMindMapStore()
+  const { nodes, edges, applyRemoteSnapshot } = useMindMapStore()
 
   // `any` storage — safe because nodes/edges are valid JSON at runtime
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -114,7 +114,7 @@ export function LiveblocksSync({ mapId }: Props) {
         // Another user was already editing — adopt the live state, but keep
         // any local edit-in-progress flags so we don't yank an open textarea.
         const merged = mergeLocalEditState(nodesArr, nodes)
-        loadMap({ id: mapId, nodes: merged, edges: edgesArr })
+        applyRemoteSnapshot(mapId, merged, edgesArr)
       }
       return
     }
@@ -122,11 +122,11 @@ export function LiveblocksSync({ mapId }: Props) {
     // Skip if this is data we pushed (echo)
     if (nodesJson === lastSyncedNodesRef.current && edgesJson === lastSyncedEdgesRef.current) return
 
-    // Mark as synced BEFORE calling loadMap so the Zustand→Liveblocks effect skips it
+    // Mark as synced BEFORE applying remote snapshot so the Zustand→Liveblocks effect skips it
     lastSyncedNodesRef.current = nodesJson
     lastSyncedEdgesRef.current = edgesJson
     const merged = mergeLocalEditState(nodesArr, nodes)
-    loadMap({ id: mapId, nodes: merged, edges: edgesArr })
+    applyRemoteSnapshot(mapId, merged, edgesArr)
   }, [liveNodes, liveEdges]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Zustand → Liveblocks ────────────────────────────────────────────────────
