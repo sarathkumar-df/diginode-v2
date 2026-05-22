@@ -102,6 +102,18 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
+      - name: Debug CF Access auth
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          echo "cloudflared version:"
+          cloudflared version
+          echo "CLIENT_ID length: ${#CF_ACCESS_CLIENT_ID}"
+          echo "CLIENT_SECRET length: ${#CF_ACCESS_CLIENT_SECRET}"
+          echo "Testing service token auth..."
+          cloudflared access token --app-url https://ssh.digitalfuturus.dev
+
       - name: Deploy via SSH
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
