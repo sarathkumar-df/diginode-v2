@@ -110,6 +110,6 @@ jobs:
           ssh \
             -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=accept-new \
-            -o "ProxyCommand=/usr/local/bin/cloudflared access ssh --hostname %h" \
+            -o "ProxyCommand=/usr/local/bin/cloudflared access ssh --hostname %h --service-token-id ${CF_ACCESS_CLIENT_ID} --service-token-secret ${CF_ACCESS_CLIENT_SECRET}" \
             ${{ secrets.QA_VM_USER }}@ssh.digitalfuturus.dev \
             "GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' ACTOR='${{ github.actor }}' SHA='${{ github.sha }}' bash ~/diginode-qa/redeploy.sh"
