@@ -93,25 +93,20 @@ jobs:
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
           sudo dpkg -i cloudflared.deb
 
-      - name: Set up SSH with Cloudflare Access
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.QA_VM_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          cat >> ~/.ssh/config <<'EOF'
-          Host ssh.digitalfuturus.dev
-            ProxyCommand cloudflared access ssh --hostname %h
-            IdentityFile ~/.ssh/id_ed25519
-            StrictHostKeyChecking no
-          EOF
 
       - name: Deploy via SSH
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
-          ssh ${{ secrets.QA_VM_USER }}@ssh.digitalfuturus.dev \
+          ssh \
+            -o "ProxyCommand=cloudflared access ssh --hostname %h" \
+            -o StrictHostKeyChecking=no \
+            -i ~/.ssh/id_ed25519 \
+            ${{ secrets.QA_VM_USER }}@ssh.digitalfuturus.dev \
             "GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' ACTOR='${{ github.actor }}' SHA='${{ github.sha }}' bash ~/diginode-qa/redeploy.sh"
