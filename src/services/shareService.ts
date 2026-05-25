@@ -61,7 +61,12 @@ export async function listSharedMaps(): Promise<SharedMapMeta[]> {
   const headers = await authHeaders()
   const res = await fetch(`${API_BASE}/shared-maps`, { headers })
   if (!res.ok) throw new Error('Failed to load shared maps')
-  return res.json()
+  fix: add defensive array checks to prevent "o is not iterable" in useMemo
+  
+  Ensure listMaps() and listSharedMaps() always return arrays, add type checks in
+  Dashboard initialization, and guard spread operations in useMemo dependencies.  const data = await res.json()
+  // Defensive check: ensure response is an array, fallback to empty array
+  return Array.isArray(data) ? data : []
 }
 
 // Fetch a map the user has access to (owned or shared)
