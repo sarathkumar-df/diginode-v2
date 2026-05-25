@@ -9,7 +9,7 @@ env:
   IMAGE_BACKEND: ghcr.io/${{ github.repository_owner }}/diginode-backend
 
 jobs:
-  # ── Job 1: Type-check + build validation ──────────────────────────────────
+  # ── Job 1: Type-check & build validation ──────────────────────────────────
   ci:
     name: Type-check & Build
     runs-on: ubuntu-latest
