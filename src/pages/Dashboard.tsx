@@ -738,23 +738,14 @@ export function Dashboard() {
       try {
         await upsertUser()
         const [myMaps, shared] = await Promise.all([listMaps(), listSharedMaps()])
-        // Defensive checks for API responses
-        if (!Array.isArray(myMaps)) {
-          console.error('[Dashboard] listMaps returned non-array:', typeof myMaps, myMaps)
-          throw new Error('Invalid maps response')
-        }
-        if (!Array.isArray(shared)) {
-          console.error('[Dashboard] listSharedMaps returned non-array:', typeof shared, shared)
-          throw new Error('Invalid shared maps response')
-        }
+        
         if (!cancelled) {
           setMaps(myMaps)
           setMapList(myMaps)
           setSharedMaps(shared)
         }
-      } catch (err) {
+      } catch  {
         if (!cancelled) {
-          console.error('[Dashboard] init error:', err)
           setError('Failed to load maps. Please refresh.')
         }
       } finally {
@@ -897,18 +888,12 @@ export function Dashboard() {
   // The "Continue where you left off" row always uses recency, regardless of
   // the sort applied to the main grid below.
   const recentMaps = useMemo(
-    () => {
-      // Defensive: ensure maps is an array
-      const safeMaps = Array.isArray(maps) ? maps : []
-      return [...safeMaps].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    },
+    () => [...maps].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
     [maps]
   )
 
   const sortedMaps = useMemo(() => {
-    // Defensive: ensure maps is an array
-    const safeMaps = Array.isArray(maps) ? maps : []
-    const arr = [...safeMaps]
+    const arr = [...maps]
     switch (sort) {
       case 'name':
         return arr.sort((a, b) => a.title.localeCompare(b.title))
@@ -933,11 +918,7 @@ export function Dashboard() {
   )
 
   const filteredShared = useMemo(
-    () => {
-      // Defensive: ensure sharedMaps is an array
-      const safeSharedMaps = Array.isArray(sharedMaps) ? sharedMaps : []
-      return query.trim() ? safeSharedMaps.filter((m) => m.title.toLowerCase().includes(query.toLowerCase())) : safeSharedMaps
-    },
+    () => query.trim() ? sharedMaps.filter((m) => m.title.toLowerCase().includes(query.toLowerCase())) : sharedMaps,
     [sharedMaps, query]
   )
 
@@ -953,30 +934,28 @@ export function Dashboard() {
   // that makes the dashboard feel like a tool, not a marketing page.
   const headingState = useMemo(() => {
     if (loading) return null
-    // Defensive: ensure maps and sharedMaps are arrays
-    const safeMaps = Array.isArray(maps) ? maps : []
-    const safeSharedMaps = Array.isArray(sharedMaps) ? sharedMaps : []
     
-    if (safeMaps.length === 0) {
+    
+    if (maps.length === 0) {
       return {
         title: 'Start your first map',
         sub: user ? `Welcome, ${user.name.split(' ')[0]}` : 'Create one below to get started',
         href: null as string | null,
       }
     }
-    const sorted = [...safeMaps].sort(
+    const sorted = [...maps].sort(
       (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     )
     const last = sorted[0]
     const lastTitle = last.title === DEFAULT_TITLE ? '(Untitled)' : last.title
     const weekMs = 7 * 24 * 60 * 60 * 1000
-    const editedThisWeek = safeMaps.filter(
+    const editedThisWeek = maps.filter(
       (m) => Date.now() - new Date(m.updatedAt).getTime() < weekMs
     ).length
     const sub =
-      `${safeMaps.length} map${safeMaps.length !== 1 ? 's' : ''}` +
+      `${maps.length} map${maps.length !== 1 ? 's' : ''}` +
       (editedThisWeek > 0 ? ` · ${editedThisWeek} edited this week` : '') +
-      (safeSharedMaps.length > 0 ? ` · ${safeSharedMaps.length} shared` : '')
+      (sharedMaps.length > 0 ? ` · ${sharedMaps.length} shared` : '')
     return {
       title: `Last edited: ${lastTitle}`,
       sub,

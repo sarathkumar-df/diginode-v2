@@ -29,19 +29,16 @@ const SKELETON_RECENT = Array.from({ length: RECENT_LIMIT }, (_, i) => ({
 
 export function AppSidebar({ activeTab, loading = false }: Props) {
   const navigate = useNavigate()
-  const maps = useMindMapStore((s) => s.maps) || []
-  
-  // Defensive check: ensure maps is always an array
-  const safeMaps = Array.isArray(maps) ? maps : []
+  const maps = useMindMapStore((s) => s.maps) 
 
   // Top N most recently edited maps. Pulled from store rather than fetching
   // separately — Dashboard already populates this via setMapList.
   const recentMaps = useMemo(
     () =>
-      [...safeMaps]
+      [...maps]
         .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
         .slice(0, RECENT_LIMIT),
-    [safeMaps]
+    [maps]
   )
 
   // Three states:
