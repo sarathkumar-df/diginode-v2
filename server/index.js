@@ -437,9 +437,9 @@ function route(fn) {
     try {
       await fn(req, res)
     } catch (err) {
-          console.error('[route error]', errMsg(err))
+          console.error('[route error]', err.stack || err)
       if (!res.headersSent) {
-                res.json({ ok: false, error: errMsg(err) })
+                res.status(500).json({ ok: false, error: errMsg(err) })
 
       }
     }
