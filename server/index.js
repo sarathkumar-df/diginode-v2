@@ -1,14 +1,15 @@
+import dns from 'dns'
+dns.setDefaultResultOrder('ipv4first')
+
 import express from 'express'
 import cors from 'cors'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { config } from 'dotenv'
-import dns from 'dns'
 import { requireAuth } from './auth.js'
 import pool from './db.js'
 import { Liveblocks } from '@liveblocks/node'
 
-dns.setDefaultResultOrder('ipv4first')
 config()
 
 const app = express()
