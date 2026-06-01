@@ -15,9 +15,27 @@ const pool = process.env.DATABASE_URL
       max: 10,
       // Intercept DNS lookups and force IPv4 resolution to prevent Happy Eyeballs / dual-stack timeouts
       lookup: (hostname, options, callback) => {
-        dns.lookup(hostname, { ...options, family: 4 }, callback)
+        console.log(`[db] Initiating connection: Resolving DNS for ${hostname} (IPv4 forced)`)
+        dns.lookup(hostname, { ...options, family: 4 }, (err, address, family) => {
+          if (err) {
+            console.error(`[db] DNS resolution failed for ${hostname}:`, err)
+          } else {
+            console.log(`[db] DNS resolved ${hostname} to ${address} (IPv${family})`)
+          }
+          callback(err, address, family)
+        })
       }
     })
   : null
+
+if (pool) {
+  pool.on('connect', () => {
+    console.log('[db] Successfully established new client connection to the database')
+  })
+
+  pool.on('error', (err) => {
+    console.error('[db] Unexpected error on idle database client:', err)
+  })
+}
 
 export default pool
