@@ -440,7 +440,7 @@ function route(fn) {
     } catch (err) {
           console.error('[route error]', err.stack || err)
       if (!res.headersSent) {
-                res.status(500).json({ ok: false, error: errMsg(err) })
+                res.status(500).json({ ok: false, error:err })
 
       }
     }
