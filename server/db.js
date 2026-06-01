@@ -10,8 +10,6 @@ const { Pool } = pkg
 const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
-      // Force IPv4 only
-      family: 4,
       ssl: { rejectUnauthorized: false }, // Neon requires SSL
       max: 10,
     })
