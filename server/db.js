@@ -1,4 +1,5 @@
 import pkg from 'pg'
+import dns from 'dns'
 import { config } from 'dotenv'
 
 config()
@@ -10,10 +11,12 @@ const { Pool } = pkg
 const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
-      // Force IPv4 only to avoid Happy Eyeballs / dual-stack timeout bugs in container runtimes
-      family: 4,
       ssl: { rejectUnauthorized: false }, // Neon requires SSL
       max: 10,
+      // Intercept DNS lookups and force IPv4 resolution to prevent Happy Eyeballs / dual-stack timeouts
+      lookup: (hostname, options, callback) => {
+        dns.lookup(hostname, { ...options, family: 4 }, callback)
+      }
     })
   : null
 
