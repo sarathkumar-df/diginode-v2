@@ -738,13 +738,16 @@ export function Dashboard() {
       try {
         await upsertUser()
         const [myMaps, shared] = await Promise.all([listMaps(), listSharedMaps()])
+        
         if (!cancelled) {
           setMaps(myMaps)
           setMapList(myMaps)
           setSharedMaps(shared)
         }
-      } catch {
-        if (!cancelled) setError('Failed to load maps. Please refresh.')
+      } catch  {
+        if (!cancelled) {
+          setError('Failed to load maps. Please refresh.')
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -931,6 +934,8 @@ export function Dashboard() {
   // that makes the dashboard feel like a tool, not a marketing page.
   const headingState = useMemo(() => {
     if (loading) return null
+    
+    
     if (maps.length === 0) {
       return {
         title: 'Start your first map',

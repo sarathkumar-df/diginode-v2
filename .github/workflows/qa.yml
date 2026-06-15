@@ -1,0 +1,115 @@
+name: QA
+
+on:
+  push:
+    branches: [qa]
+
+env:
+  IMAGE_FRONTEND: ghcr.io/${{ github.repository_owner }}/diginode-frontend
+  IMAGE_BACKEND: ghcr.io/${{ github.repository_owner }}/diginode-backend
+
+jobs:
+  # ── Job 1: Type-check & build validation ──────────────────────────────────
+  ci:
+    name: Type-check & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Build (stub VITE vars)
+        run: npm run build
+        env:
+          VITE_API_URL: https://placeholder
+          VITE_AZURE_CLIENT_ID: placeholder
+          VITE_AZURE_TENANT_ID: common
+
+  # ── Job 2: Build Docker images and push to GHCR ───────────────────────────
+  docker:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: ci
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.frontend
+          push: true
+          tags: |
+            ${{ env.IMAGE_FRONTEND }}:qa
+            ${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
+          build-args: |
+            VITE_API_URL=${{ secrets.QA_VITE_API_URL }}
+            VITE_AZURE_CLIENT_ID=${{ secrets.VITE_AZURE_CLIENT_ID }}
+            VITE_AZURE_TENANT_ID=${{ secrets.VITE_AZURE_TENANT_ID }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.backend
+          push: true
+          tags: |
+            ${{ env.IMAGE_BACKEND }}:qa
+            ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Job 3: SSH into VM via Cloudflare Access and redeploy ────────────────
+  deploy:
+    name: Deploy to QA VM
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - name: Install cloudflared
+        run: |
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
+          sudo dpkg -i cloudflared.deb
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.QA_VM_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Deploy via SSH
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=accept-new \
+            -o "ProxyCommand=/usr/local/bin/cloudflared access ssh --hostname %h --service-token-id ${CF_ACCESS_CLIENT_ID} --service-token-secret ${CF_ACCESS_CLIENT_SECRET}" \
+            ${{ secrets.QA_VM_USER }}@ssh.digitalfuturus.dev \
+            "GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' ACTOR='${{ github.actor }}' SHA='${{ github.sha }}' bash ~/diginode-qa/redeploy.sh"

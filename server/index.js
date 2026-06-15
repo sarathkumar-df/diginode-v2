@@ -1,3 +1,6 @@
+import dns from 'dns'
+dns.setDefaultResultOrder('ipv4first')
+
 import express from 'express'
 import cors from 'cors'
 import Anthropic from '@anthropic-ai/sdk'
@@ -435,9 +438,10 @@ function route(fn) {
     try {
       await fn(req, res)
     } catch (err) {
-      console.error('[route error]', errMsg(err))
+          console.error('[route error]', err.stack || err)
       if (!res.headersSent) {
-        res.json({ ok: false, error: errMsg(err) })
+                res.status(500).json({ ok: false, error:err })
+
       }
     }
   }
@@ -498,6 +502,7 @@ app.get('/api/users', authMiddleware, route(async (req, res) => {
 // GET /api/maps — list user's maps (metadata only, sorted by last updated)
 app.get('/api/maps', authMiddleware, route(async (req, res) => {
   if (!requireDb(res)) return
+  console.log("after connect");
   const { rows } = await pool.query(
     `SELECT id, title, created_at, updated_at, thumbnail,
             data -> 'nodes' -> 0 -> 'data' ->> 'color' AS root_color
@@ -506,6 +511,7 @@ app.get('/api/maps', authMiddleware, route(async (req, res) => {
      ORDER BY updated_at DESC`,
     [req.user.id]
   )
+  console.log("After query");
   res.json(rows.map((r) => ({
     id: r.id,
     title: r.title,
