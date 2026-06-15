@@ -14,7 +14,7 @@ const pool = process.env.DATABASE_URL
       ssl: { rejectUnauthorized: false }, // Neon requires SSL
       max: 3,                    // Neon free tier has low concurrent connection limits
       idleTimeoutMillis: 20000,  // release idle connections quickly so Neon can scale down
-      connectionTimeoutMillis: 10000, // fail fast rather than hang indefinitely
+      connectionTimeoutMillis: 30000, // fail fast rather than hang indefinitely
       // Intercept DNS lookups and force IPv4 resolution to prevent Happy Eyeballs / dual-stack timeouts
       lookup: (hostname, options, callback) => {
         console.log(`[db] Initiating connection: Resolving DNS for ${hostname} (IPv4 forced)`)
